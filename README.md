@@ -1,5 +1,4 @@
-# minimal
-Minimal Mail UI
+# Minimal Mail UI
 
 This is a little pet project to play around with imap, node.js, express, and socket.io. Main paradigms are simplicity and performance. Tested with Dovecot so far.
 
