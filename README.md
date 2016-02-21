@@ -24,6 +24,12 @@ This is a little pet project to play around with imap, node.js, express, and soc
 * Press `u` key to mark a message as unseen/seen
 * Press `backspace` or `del` to delete a message (not yet server-side)
 
+**Architecture**
+
+* Using express to provide a simple REST-y API
+* socket.io to handle IMAP IDLE
+* Almost all content is rendered server-side (via simple underscore templates)
+
 **Open playgrounds**
 
 * Add login/logout support
@@ -31,7 +37,9 @@ This is a little pet project to play around with imap, node.js, express, and soc
 
 **Limitations**
 
-* Designed for recent browser versions (primarily Chrome)
+* Designed for recent browser versions only (primarily Chrome)
+* Desktop-only; no responsive stuff
 * Dovecot-only
+* No i18n; en_US only
 * Just very basic keyboard support
 * No tests (yet)
