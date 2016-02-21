@@ -1,0 +1,2 @@
+# minimal
+Minimal Mail UI
