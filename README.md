@@ -14,7 +14,7 @@ This is a little pet project to play around with imap, node.js, express, and soc
 * It's simple and fast
 * The mail 101: Show all subscribed mailboxes, show all messages in a mailbox, read a message, access attachments.
 * Push via IMAP IDLE (works for flag changes and new messages)
-* Themes! Yep. Simplicity is good but your favorite color is better. Hit
+* Themes! Yep. Simplicity is good but your favorite color is better. Click on the little star icon (top right) to change themes.
 * Powerful search. Supports different prefixes, e.g. subject:report from:matthias. You can use subject:, from:, to:, cc:, and year:. To search in all mailboxes just add :all (leading colon). No support for fulltext because far too slow.
 * General HTML sanitizing; safe enough to play around
 * External images are blocked. Click "Show images" to load them. Smooth replacement; no message-reload necessary.
@@ -29,3 +29,9 @@ This is a little pet project to play around with imap, node.js, express, and soc
 * Add login/logout support
 * Concurrency
 
+**Limitations**
+
+* Designed for recent browser versions (primarily Chrome)
+* Dovecot-only
+* Just very basic keyboard support
+* No tests (yet)
