@@ -1,0 +1,474 @@
+/**
+ * This work is provided under the terms of the CREATIVE COMMONS PUBLIC
+ * LICENSE. This work is protected by copyright and/or other applicable
+ * law. Any use of the work other than as authorized under this license
+ * or copyright law is prohibited.
+ *
+ * http://creativecommons.org/licenses/by-nc-sa/4.0/
+ *
+ * © 2016 Matthias Biggeleben <biggeleben@gmail.com>
+ */
+
+html, body {
+    padding: 0;
+    margin: 0;
+    height: 100%;
+}
+
+body {
+    color: #333;
+    font: normal 13px/16px "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-feature-settings: "liga" 0, "kern";
+    overflow: hidden;
+}
+
+* { box-sizing: border-box; }
+
+a { text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.abs {
+    position: absolute;
+    top: 0; right: 0; bottom: 0; left: 0;
+}
+
+.atb {
+    position: absolute;
+    top: 0; bottom: 0;
+}
+
+.screen {
+    display: flex;
+    flex-direction: row;
+    top: 56px;
+    right: 16px;
+    bottom: 16px;
+}
+
+.folder-view {
+    flex: 0 0 280px;
+    list-style-type: none;
+    margin: 0;
+    padding: 8px 0;
+    overflow-y: auto;
+    color: rgba(255, 255, 255, 0.70);
+}
+
+.folder-view .folder {
+    line-height: 24px;
+    outline: 0;
+    cursor: pointer;
+}
+
+.folder-view .subfolders {
+    list-style-type: none;
+    padding: 0;
+}
+
+.folder-view .folder-title:hover {
+    background-color: rgba(0, 0, 0, 0.10);
+}
+
+.folder-view .folder:focus > .folder-title {
+    color: white;
+    background-color: rgba(0, 0, 0, 0.30);
+}
+
+.list-view {
+    flex: 0 0 280px;
+    position: absolute;
+    width: 280px;
+    height: 100%;
+    overflow-y: auto;
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
+    background-color: rgba(0, 0, 0, 0.15);
+    outline: 0;
+}
+
+.list-view li {
+    padding: 11px 16px 12px 16px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.10);
+    cursor: pointer;
+    outline: 0;
+    background-color: white;
+    position: relative;
+}
+
+.list-view li.error {
+    background-color: rgba(0, 0, 0, 0.20);
+    color: rgba(255, 255, 255, 0.80);
+}
+
+.list-view li:focus {
+    color: white;
+    background-color: rgba(0, 0, 0, 0.20);
+}
+
+.list-view li.no-matches {
+    color: rgba(255, 255, 255, 0.80);
+    background-color: rgba(0, 0, 0, 0.20);
+    padding: 12px 16px;
+}
+
+.list-view .gray {
+    color: rgba(0, 0, 0, 0.80);
+}
+
+.list-view li:focus .gray {
+    color: rgba(255, 255, 255, 0.80);
+}
+
+.list-view .row {
+    clear: both;
+}
+
+.ellipsis {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.list-view .who {
+    font-weight: 500;
+}
+
+.list-view .date {
+    font-weight: 300;
+    float: right;
+    display: inline-block;
+    margin-left: 8px;
+}
+
+.list-view .subject {
+    font-weight: 300;
+}
+
+.list-view .has-attachment {
+    float: right;
+    display: inline-block;
+}
+
+.list-view .has-attachment:before {
+    font-size: 14px;
+    margin: 0 0 0 8px;
+}
+
+/* Flags */
+
+.list-view li.deleted, .list-view li.deleted .gray {
+    color: rgba(0, 0, 0, 0.20);
+    text-decoration: line-through;
+}
+
+.list-view li.deleted:focus, .list-view li.deleted:focus .gray {
+    color: rgba(255, 255, 255, 0.30);
+}
+
+.list-view li.unseen .who, .list-view li.unseen .date {
+    font-weight: bold;
+}
+
+.list-view li.unseen .subject {
+    padding-left: 16px;
+}
+
+.list-view li.unseen:before {
+    content: "\25CF";
+    position: absolute;
+    top: 26px;
+    left: 15px;
+    font-size: 20px;
+    line-height: 1em;
+    color: #08c;
+}
+
+.list-view li.unseen:focus:before {
+    color: rgba(255, 255, 255, 0.50);
+}
+
+/* Detail view */
+
+.detail-view {
+    position: absolute;
+    top: 0; right: 0; bottom: 0; left: 576px;
+    background-color: rgba(0, 0, 0, 0.15);
+    overflow: auto;
+    flex: 1;
+}
+
+.detail-view.fade > * {
+    opacity: 0;
+    transition: opacity 0.3s linear;
+}
+
+.detail-view iframe {
+    padding: 0;
+    margin: 0;
+    border: 0;
+    background-color: white;
+    width: 100%;
+    /* display: block to avoid unwanted space below iframe */;
+    display: block;
+}
+
+.detail-view header {
+    color: #FFF;
+    background-color: rgba(0, 0, 0, 0.20);
+    padding: 0 16px 21px 16px;
+    min-height: 112px;
+}
+
+.detail-view .subject {
+    color: rgba(255, 255, 255, 0.8);
+    font-weight: 100;
+    font-size: 20px;
+    letter-spacing: 1px;
+    line-height: 24px;
+    padding: 21px 0 15px 0;
+    margin: 0;
+}
+
+.detail-view .received-date {
+    float: right;
+    color: rgba(255, 255, 255, 0.8);
+    font-weight: 300;
+    /* add margin for some room between date and recipients below */
+    margin-bottom: 1em;
+}
+
+.detail-view dl {
+    color: rgba(255, 255, 255, 0.85);
+    font-weight: 400;
+    padding-left: 64px;
+    position: relative;
+    margin: 0;
+}
+
+.detail-view dt {
+    color: rgba(255, 255, 255, 0.50);
+    font-weight: 400;
+    position: absolute;
+    left: 0;
+}
+
+.detail-view dd {
+    margin: 0;
+}
+
+.detail-view dl.attachments {
+    margin-top: 16px;
+}
+
+.detail-view dl.attachments .icon-paperclip {
+    font-size: 14px;
+}
+
+.detail-view dl.attachments a {
+    color: inherit;
+}
+
+.detail-view .blocked-images {
+    color: rgba(255, 255, 255, 0.70);
+    background-color: rgba(0, 0, 0, 0.30);
+    font-size: 12px;
+    padding: 8px 16px;
+}
+
+.detail-view .blocked-images button {
+    color: white;
+    background-color: rgba(0, 0, 0, 0.20);
+    border: 0;
+    padding: 4px 16px;
+    line-height: 16px;
+    margin-right: 16px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.detail-view .spam {
+    background-color: #FFF7B8;
+    padding: 10px 16px 12px 16px;
+    margin: 1px 0;
+}
+
+/* Toolbar */
+
+.toolbar {
+    height: 40px;
+    line-height: 40px;
+    bottom: auto;
+    background-color: rgba(0, 0, 0, 0.40);
+    padding: 0 16px;
+}
+
+.toolbar h1 {
+    font-size: 20px;
+    line-height: 36px;
+    font-weight: 100;
+    color: rgba(255, 255, 255, 0.80);
+    margin: 0;
+    padding-top: 3px;
+    letter-spacing: 1px;
+}
+
+.search {
+    position: absolute;
+    top: 0;
+    left: 280px;
+    height: 40px;
+    width: 280px;
+}
+
+.search-field {
+    color: #fff;
+    border: 0;
+    background-color: rgba(0, 0, 0, 0.20);
+    font-size: 13px;
+    height: 40px;
+    margin: 0;
+    padding: 8px 16px;
+    border-radius: 0;
+    width: 100%;
+    outline: 0;
+}
+
+.search-field::-webkit-input-placeholder {
+    color: rgba(255, 255, 255, 0.70);
+}
+
+.toolbar .right {
+    position: absolute;
+    top: 0;
+    right: 16px;
+    height: 40px;
+}
+
+.toolbar button {
+    color: rgba(255, 255, 255, 0.70);
+    background-color: transparent;
+    border: 0;
+    outline: 0;
+    cursor: pointer;
+    font-size: 13px;
+    height: 40px;
+    padding: 0 16px;
+    vertical-align: top;
+}
+
+.toolbar button:hover {
+    color: #fff;
+    background-color: rgba(0, 0, 0, 0.20);
+}
+
+/* CSS Throbber */
+
+.busy:before {
+
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    margin: -16px 0 0 -16px;
+    font-size: 32px;
+    line-height: 32px;
+    color: rgba(255, 255, 255, 0.40);
+    /* CLOCKWISE OPEN CIRCLE ARROW */
+    content: '\21bb';
+    font-family: "Arial Unicode MS", "Helvetica Neue", Helvetica, sans-serif;
+
+    width: 32px;
+    text-align: center;
+    height: 33px; /* yep, 33 to have a fixed center */
+
+    animation: throbber 1s infinite linear;
+}
+
+@keyframes throbber {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(359deg);
+    }
+}
+
+/* Themes */
+
+html.theme_0 {
+    /* red */
+    background-image: linear-gradient(230deg, #5F0F02, #DA2626, #1D040C)
+}
+
+html.theme_1 {
+    /* orange */
+    background-image: linear-gradient(230deg, #8A1111, #F7830B, #420000);
+}
+
+html.theme_2 {
+    /* green */
+    background-image: linear-gradient(230deg, #065442, #8DC148, #032507);
+}
+
+html.theme_3 {
+    /* cyan */
+    background-image: linear-gradient(230deg, #68CC87, #399DBB, #152138);
+}
+
+html.theme_4 {
+    /* blue */
+    background-image: linear-gradient(230deg, #68BECC, #397FBB, #081E3E);
+}
+
+html.theme_5 {
+    /* purple */
+    background-image: linear-gradient(230deg, #65125E, #C54FC7, #361348);
+}
+
+html.theme_6 {
+    /* pink */
+    background-image: linear-gradient(230deg, #8A0B46, #D624A7, #1F0819);
+}
+
+html.theme_7 {
+    /* dark */
+    background-image: linear-gradient(230deg, #231A2F, #5E6073, #1C1925);
+}
+
+html.theme_7 .list-view li:focus { background-color: #E67500; }
+
+/* Font Awesome (to get the paperclip icon) */
+
+@font-face {
+    font-family: 'custom';
+    src: url('custom.woff?79109507') format('woff');
+    font-weight: normal;
+    font-style: normal;
+}
+
+[class^="icon-"]:before, [class*=" icon-"]:before {
+
+  font-family: "custom";
+  font-style: normal;
+  font-weight: normal;
+  speak: none;
+
+  display: inline-block;
+  text-decoration: inherit;
+  width: 1em;
+  margin-right: .2em;
+  text-align: center;
+
+  /* For safety - reset parent styles, that can break glyph codes*/
+  font-variant: normal;
+  text-transform: none;
+
+  /* fix buttons height, for twitter bootstrap */
+  line-height: 1em;
+
+  /* Font smoothing. That was taken from TWBS */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.icon-paperclip:before { content: '\e800'; }

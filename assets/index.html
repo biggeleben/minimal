@@ -1,0 +1,79 @@
+﻿<!--
+    This work is provided under the terms of the CREATIVE COMMONS PUBLIC
+    LICENSE. This work is protected by copyright and/or other applicable
+    law. Any use of the work other than as authorized under this license
+    or copyright law is prohibited.
+
+    http://creativecommons.org/licenses/by-nc-sa/4.0/
+
+    © 2016 Matthias Biggeleben <biggeleben@gmail.com>
+-->
+<!doctype html>
+<html class="theme_3">
+<head>
+<script>
+
+// we must set the theme as early as possible to avoid flickering
+
+function setTheme(n) {
+    var html = document.documentElement;
+    html.className = html.className.replace(/theme_\d/, 'theme_' + n);
+    setTheme.current = parseInt(n, 10);
+    setCookie('theme', n);
+}
+
+setTheme.current = 3;
+
+function nextTheme() {
+    setTheme((setTheme.current + 1) % 8);
+}
+
+function getCookie(key) {
+    var parts = document.cookie.split(/; ?/);
+    if (!key) return parts;
+    return parts
+        .filter(function (pair) { return pair.indexOf(key) === 0; })
+        .map(function (pair) { return decodeURIComponent(pair.substr(key.length + 1)); })[0];
+}
+
+function setCookie(key, value, lifetime) {
+    var cookie = key + '=' + encodeURIComponent(value) +
+        (lifetime ? '; expires=' + new Date(new Date().getTime() + lifetime).toGMTString() : '') + '; path=/';
+    document.cookie = cookie;
+}
+
+// set theme based on cookie
+var theme = getCookie('theme');
+if (theme !== undefined) setTheme(theme);
+
+</script>
+<meta charset="utf-8">
+<title>Minimal UI</title>
+<link type="text/css" rel="stylesheet" href="assets/ui.css">
+</head>
+<body>
+
+<nav class="abs toolbar">
+    <h1>Minimal UI</h1>
+    <div class="search">
+        <!-- type="search" cannot be styled in Safari -->
+        <input type="text" class="search-field" placeholder="Search ...">
+    </div>
+    <div class="right">
+        <button class="theme-switch">&#9733;</button>
+        <button class="logout">Logout</button>
+    </div>
+</nav>
+
+<div class="abs screen">
+    <ul class="column folder-view" role="tree"></ul>
+    <ul class="column list-view" role="listbox" tabindex="-1"></ul>
+    <div class="column detail-view" role="complementary"></div>
+</div>
+
+<script src="assets/jquery.min.js"></script>
+<script src="assets/socket.io.js"></script>
+<script src="assets/ui.js"></script>
+
+</body>
+</html>
