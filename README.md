@@ -27,6 +27,12 @@ This is a little pet project to play around with imap, node.js, express, and soc
 **Architecture**
 
 * Using express to provide a simple REST-y API
+  * `GET /folders` Get all subscribed folders/mailboxes
+  * `GET /mail/messages/<mailbox>` Get all messages in a mailbox
+  * `GET /mail/message/<mailbox>/<uid>` Get a message
+  * `GET /mail/attachment/<mailbox>/<uid>/<part>` Get a particular attachment
+  * `PUT /mail/search?query=...` Search for messages
+  * `PUT /mail/message/<mailbox>/<uid>/flags` Update flag (seen)
 * socket.io to handle IMAP IDLE
 * Almost all content is rendered server-side (via simple underscore templates)
 
