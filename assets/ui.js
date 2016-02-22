@@ -221,7 +221,7 @@ $(function () {
         var node = listView.find('[data-cid="' + $.escape(cid) + '"]');
         if (state === undefined) state = node.hasClass('unseen');
         node.toggleClass('unseen', !state);
-        $.ajax({ method: 'put', url: 'mail/message/' + cid + '/flags?seen=' + state });
+        $.ajax({ method: 'put', url: 'mail/messages/' + cid + '/flags', data: JSON.stringify({ seen: state }) });
     }
 
     function toggleSeenIfUnseen(cid) {
