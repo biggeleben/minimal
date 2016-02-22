@@ -37,7 +37,7 @@ $(function () {
     }
 
     function loadFolders() {
-        return $.ajax({ url: 'folders' }).then(function (html) {
+        return $.ajax({ url: 'mail/mailboxes' }).then(function (html) {
             folderView[0].innerHTML = html;
             folderView.find('[data-cid="' + $.escape(currentFolder) + '"]').focus();
             return html;
@@ -49,7 +49,7 @@ $(function () {
         clearSearchField();
         var busy = setTimeout(function () { listView.addClass('busy'); }, 500);
         var render = lastOneWins(renderMessages);
-        return $.ajax({ url: 'mail/messages/' + folder })
+        return $.ajax({ url: 'mail/messages/' + folder + '/' })
             .always(function () {
                 clearTimeout(busy);
                 listView.removeClass('busy');
@@ -62,8 +62,8 @@ $(function () {
     function searchMessages(query) {
         clearMailbox();
         listView.addClass('busy');
-        var url = 'mail/search/' + currentFolder + '?' + $.param({ query: query });
-        return $.ajax({ method: 'PUT', url: url }).done(lastOneWins(renderMessages));
+        var url = 'mail/messages/' + currentFolder + '/?' + $.param({ query: query });
+        return $.ajax({ method: 'search', url: url }).done(lastOneWins(renderMessages));
     }
 
     function renderMessages(html) {
@@ -78,11 +78,11 @@ $(function () {
             toggleSeenIfUnseen(cid);
             return renderMessage(messageCache[cid]);
         }
-        var fade = setTimeout(function () { detailView.addClass('fade'); }, 200);
-        var busy = setTimeout(function () { detailView.addClass('busy'); }, 500);
+        var fade = setTimeout(function () { detailView.addClass('fade'); }, 300);
+        var busy = setTimeout(function () { detailView.addClass('busy'); }, 600);
         var render = lastOneWins(renderMessage);
         if (pending) pending.abort();
-        pending = $.ajax({ url: 'mail/message/' + cid });
+        pending = $.ajax({ url: 'mail/messages/' + cid });
         pending
             .always(function () {
                 pending = null;
@@ -191,7 +191,7 @@ $(function () {
         return list.map(function (item) {
             return $('<a>')
                 .attr({
-                    'href': 'mail/attachment/' + cid + '/' + item.id,
+                    'href': 'mail/messages/' + cid + '.' + item.id,
                     'target': '_blank'
                 })
                 .text(item.filename.replace(/\s/g, '\u00A0'))
@@ -317,6 +317,8 @@ $(function () {
     // <backspace/del> -> delete message
     $(document).on('keydown', '.list-view li', function (e) {
         if (!(e.which === 8 || e.which === 46)) return;
+        // preventDefault to avoid history back
+        e.preventDefault();
         var cid = $(e.currentTarget).attr('data-cid');
         removeMessage(cid);
     });
@@ -352,12 +354,16 @@ $(function () {
             .toggleClass('unseen', !data.flags.seen)
             .toggleClass('deleted', data.flags.deleted);
     });
-    socket.on('mail', function (data) {
-        console.log('socket:mail', data);
-        fetchMailbox();
-    });
     socket.on('uidvalidity', function (data) {
         console.log('socket:uidvalidity', data)
+    });
+    // ignore first event right after page reload
+    var first = true;
+    socket.on('mail', function (data) {
+        if (first) { first = false; return; }
+        console.log('socket:mail', data);
+        fetchMailbox();
+        // new Audio('assets/beep.mp3').play();
     });
 });
 

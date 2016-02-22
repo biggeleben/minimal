@@ -42,7 +42,7 @@ app.get('/', function (req, res) {
 // All folders
 //
 
-app.get('/folders', function (req, res) {
+app.get('/mail/mailboxes', function (req, res) {
 
     var tmpl = _.template(
         '<li class="folder" role="treeitem" tabindex="-1" data-cid="<%- data.cid %>">' +
@@ -89,7 +89,7 @@ var tmplEnvelope = _.template(
 
 var tmplError = _.template('<li class="error"><%- error %></li>');
 
-app.get(/^\/mail\/messages\/(.+)$/, function (req, res) {
+app.get(/^\/mail\/messages\/(.+)\/$/, function (req, res) {
 
     imap.fetchEnvelope(req.params[0])
         .done(function (list) {
@@ -108,7 +108,7 @@ app.get(/^\/mail\/messages\/(.+)$/, function (req, res) {
         });
 });
 
-app.put(/^\/mail\/search\/(.+)$/, function (req, res) {
+app.search(/^\/mail\/messages\/(.+)\/$/, function (req, res) {
 
     imap.searchEnvelope(req.params[0], req.query.query)
         .done(function (list) {
@@ -129,7 +129,7 @@ app.put(/^\/mail\/search\/(.+)$/, function (req, res) {
 // A single message
 //
 
-app.get(/^\/mail\/message\/(.+)\/(\d+)$/, function (req, res) {
+app.get(/^\/mail\/messages\/(.+)\/(\d+)$/, function (req, res) {
 
     var folder = req.params[0], uid = req.params[1];
     imap.fetchMessage(folder, uid)
@@ -145,7 +145,7 @@ app.get(/^\/mail\/message\/(.+)\/(\d+)$/, function (req, res) {
 // An attachment
 //
 
-app.get(/^\/mail\/attachment\/(.+)\/(\d+)\/(\d[\d\.]*)$/, function (req, res) {
+app.get(/^\/mail\/messages\/(.+)\/(\d+)\.(\d[\d\.]*)$/, function (req, res) {
 
     imap.fetchPart(req.params[0], req.params[1], req.params[2])
         .done(function (result) {
@@ -189,7 +189,7 @@ function autoOrientImage(buffer, callback) {
 // Set flag
 //
 
-app.put(/^\/mail\/message\/(.+)\/(\d+)\/flags$/, function (req, res) {
+app.put(/^\/mail\/messages\/(.+)\/(\d+)\/flags$/, function (req, res) {
 
     var folder = req.params[0], id = req.params[1];
 

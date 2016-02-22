@@ -26,6 +26,7 @@ var imap = new Imap({
     port: config.port,
     tls: true,
     authTimeout: 3000
+    // debug: function (cmd) { console.log(cmd); }
 });
 
 //
@@ -509,7 +510,7 @@ function getContentParts(parts, folder, uid) {
         // having a cid is an indicator that it's a references inline image anyway
         if (append && /^image\/(jpeg|png|bmp|gif)$/i.test(part.contentType) && !part.cid) {
             // append images if not yet inline (indicated by a cid)
-            part.content = '<img src="mail/attachment/' + folder + '/' + uid + '/' + part.id + '" class="injected">';
+            part.content = '<img src="mail/messages/' + folder + '/' + uid + '.' + part.id + '" class="injected">';
             result.push(part);
         }
         if (part.disposition !== 'inline') return;
@@ -544,7 +545,7 @@ function fixImages(data) {
         })
         // replace src of inline images
         .replace(/src=["']?cid:([^"']+)["']?/gi, function (all, cid) {
-            return 'src="mail/attachment/' + folder + '/' + id + '/' + hash[cid] + '"';
+            return 'src="mail/messages/' + folder + '/' + id + '.' + hash[cid] + '"';
         });
 }
 
