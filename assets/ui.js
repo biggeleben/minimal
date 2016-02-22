@@ -37,7 +37,7 @@ $(function () {
     }
 
     function loadFolders() {
-        return $.ajax({ url: 'mail/mailboxes' }).then(function (html) {
+        return $.ajax({ url: 'mail/mailboxes/' }).then(function (html) {
             folderView[0].innerHTML = html;
             folderView.find('[data-cid="' + $.escape(currentFolder) + '"]').focus();
             return html;

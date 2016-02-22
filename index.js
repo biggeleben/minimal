@@ -42,7 +42,7 @@ app.get('/', function (req, res) {
 // All folders
 //
 
-app.get('/mail/mailboxes', function (req, res) {
+app.get('/mail/mailboxes/', function (req, res) {
 
     var tmpl = _.template(
         '<li class="folder" role="treeitem" tabindex="-1" data-cid="<%- data.cid %>">' +
