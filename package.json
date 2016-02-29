@@ -4,8 +4,11 @@
   "description": "Minimal Mail UI",
   "main": "index.js",
   "dependencies": {
+    "body-parser": "^1.15.0",
     "compression": "^1.6.1",
+    "connect-redis": "^3.0.2",
     "cookie-parser": "^1.4.1",
+    "easy-gd": "https://github.com/biggeleben/easy-gd/tarball/master",
     "express": "^4.13.4",
     "express-session": "^1.13.0",
     "iconv-lite": "^0.4.13",
@@ -14,7 +17,6 @@
     "mimelib": "^0.2.19",
     "moment": "^2.11.2",
     "sanitize-html": "^1.11.3",
-    "sharp": "^0.13.0",
     "socket.io": "^1.4.5",
     "underscore": "^1.8.3"
   },

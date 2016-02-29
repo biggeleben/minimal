@@ -19,28 +19,19 @@ var Imap = require('imap'),
     util = require('./util'),
     config = require('../config');
 
-var imap = new Imap({
-    user: config.user,
-    password: config.password,
-    host: config.host,
-    port: config.port,
-    tls: true,
-    authTimeout: 3000
-    // debug: function (cmd) { console.log(cmd); }
-});
-
 //
 // Connetion handling
 //
 
-var ready = $.Deferred();
+var imap, ready = $.Deferred();
 
 function onReady() {
-    ready.resolve();
+    ready.resolve(imap);
 }
 
-function onError(err) {
-    ready.reject(err);
+function onError(error) {
+    console.error('Connection error', error);
+    ready.reject(error);
 }
 
 function onEnd() {
@@ -48,10 +39,25 @@ function onEnd() {
     ready.reject();
 }
 
-imap.on('ready', onReady);
-imap.once('error', onError);
-imap.once('end', onEnd);
-imap.connect();
+function connect(user, password) {
+
+    imap = new Imap({
+        user: user,
+        password: password,
+        host: config.host,
+        port: config.port,
+        tls: true,
+        authTimeout: 3000
+        //debug: function (cmd) { console.log(cmd); }
+    });
+
+    imap.on('ready', onReady);
+    imap.once('error', onError);
+    imap.once('end', onEnd);
+    imap.connect();
+
+    return ready.promise();
+}
 
 function reconnect() {
     ready.reject();
@@ -78,6 +84,12 @@ function fetchEnvelope(folder) {
             struct: false
         });
         return processEnvelope(f, folder);
+    });
+}
+
+function searchUnseen(folder) {
+    return selectBox(folder).then(function (box) {
+        return search(['UNSEEN', 'UNDELETED']);
     });
 }
 
@@ -112,6 +124,12 @@ function searchEnvelope(folder, query) {
 function parseQuery(query) {
     // all lowercase
     query = query.toLowerCase();
+    // unseen only?
+    var flag = 'UNDELETED';
+    if (/\:unseen/i.test(query)) {
+        flag = 'UNSEEN';
+        query = query.replace(/\:unseen/i, '');
+    }
     // uses special syntax?
     if (/(subject|from|to|cc|year)\:/.test(query)) {
         // split into sub queries
@@ -129,9 +147,11 @@ function parseQuery(query) {
                 default: return [['SUBJECT', phrase]];
             }
         });
-        return _(['UNDELETED'].concat(expressions)).chain().flatten(true).compact().value();
+        return _([flag].concat(expressions)).chain().flatten(true).compact().value();
+    } else if (query) {
+        return [flag, ['OR', ['SUBJECT', query], ['FROM', query]]]
     } else {
-        return ['UNDELETED', ['OR', ['SUBJECT', query], ['FROM', query]]]
+        return [flag];
     }
 }
 
@@ -482,9 +502,22 @@ function sanitizeHTML(data) {
     });
 }
 
+var messageStyle = '<style> html, body { overflow: hidden; } body { font: normal 13px/normal "Helvetica Neue", Helvetica, Arial, sans-serif; padding: 16px; border: 0; margin: 0; max-width: 700px; } ' +
+    'a { color: #337ab7; } p { margin: 0 0 1em 0; } blockquote { color: #777; border-left: 1px solid #ccc; margin: 0 0 1em 0; padding-left: 23px; } ' +
+    'table { border-collapse: collapse; } pre { white-space: pre-wrap; } .simple-message { word-break: break-word; } ' +
+    '.simple-message img { max-width: 100%; height: auto; border: 0; } .simple-message img.injected { margin: 1em 0 0 0; } ' +
+    'img[src="//:0"] { background-color: rgba(0, 0, 0, 0.1); background-image: repeating-linear-gradient(45deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0) 20px, rgba(255, 255, 255, 0.5) 20px, rgba(255, 255, 255, 0.5) 40px); ' +
+    '</style>';
+
 function addStructure(data) {
     if (data.contentType === 'text/plain') data.content = '<body>' + data.content + '</body>';
     data.content = '<!doctype html><html><head><meta charset="utf-8"></head>' + data.content + '</html>';
+    // mark as simple?
+    if (!/<table/i.test(data.content)) data.content = data.content.replace(/<html/, '<html class="simple-message"');
+    // inject missing <head>
+    if (!/<head>/i.test(data.content)) data.content = data.content.replace(/(<html[^>]*>)/, '$1<head></head>');
+    // inject css
+    data.content = data.content.replace(/<head>/, '<head>' + messageStyle);
 }
 
 function removeLeadingWhiteSpace(data) {
@@ -558,7 +591,7 @@ function fetchPart(folder, uid, part) {
     var def = $.Deferred();
 
     ready.done(function () {
-        imap.openBox(folder, true, function (err, box) {
+        imap.openBox(folder, false, function (err, box) {
             if (err) return def.reject(err);
             var f = imap.fetch(uid, { bodies: [part + '.MIME', part], struct: false });
             var content = '', headers = {};
@@ -602,18 +635,90 @@ function fetchPart(folder, uid, part) {
 
 function fetchMailboxes() {
 
-    var def = $.Deferred();
-    ready.done(function () {
+    return ready.then(function () {
+        var def = $.Deferred();
         imap.getSubscribedBoxes(function (err, result) {
             if (err) return def.reject(err);
             result.INBOX.id = 'INBOX';
-            def.resolve(sortMailboxes(result.INBOX, 0, 0));
+            def.resolve(sortMailboxes(result.INBOX, 0));
         });
+        return def;
+    })
+    .then(function resort(inbox) {
+
+        var specialUse = [inbox], mailboxes = [], hash = {};
+
+        // just look below INBOX - first iteration considers special use flags
+        mailboxes = _(inbox.subfolders).filter(function (item) {
+            if (/^(archive|drafts|sent|spam|trash)$/.test(item.special)) {
+                hash[item.special] = true;
+                specialUse.push(item);
+                if (item.special === 'archive') sortArchive(item);
+                return false;
+            }
+            return true;
+        });
+
+        var flags = {
+            drafts: /^(Drafts)$/i,
+            sent: /^(Sent|Sent\s(items|messages|objects))$/i,
+            spam: /^(Spam|Junk)$/i,
+            trash: /^(Trash|Deleted\s(items|messages|objects))$/i,
+            archive: /^(Archive)$/i
+        };
+
+        // 2nd iteration - consider id
+        mailboxes = _(mailboxes).filter(function (item) {
+            for (var special in flags) {
+                if (!hash[special] && flags[special].test(item.title)) {
+                    item.special = special;
+                    hash[special] = true;
+                    specialUse.push(item);
+                    if (item.special === 'archive') sortArchive(item);
+                    return false;
+                }
+            }
+            return true;
+        });
+
+        inbox.subfolders = [];
+        inbox.title = 'Inbox';
+
+        // sort special-use folders
+        var sorting = { inbox: 0, drafts: 1, sent: 2, spam: 3, trash: 4, archive: 5 };
+        specialUse = _(specialUse).sortBy(function (box) {
+            return sorting[box.special];
+        });
+
+        inheritSpecialUse(specialUse);
+
+        specialUse.push({
+            cid: 'mailboxes',
+            id: 'mailboxes',
+            level: 0,
+            selectable: false,
+            special: '',
+            subfolders: mailboxes,
+            title: 'My folders'
+        });
+
+        var root = {
+            cid: 'root',
+            id: 'root',
+            level: 0,
+            selectable: false,
+            special: '',
+            subfolders: specialUse,
+            title: 'root'
+        };
+
+        fixNestingLevels(0, root);
+
+        return root;
     });
-    return def;
 }
 
-function sortMailboxes(box, parent, level) {
+function sortMailboxes(box, parent) {
 
     var delimiter = box.delimiter || '/',
         id = parent ? parent + delimiter + box.id : box.id;
@@ -623,7 +728,7 @@ function sortMailboxes(box, parent, level) {
         // turn into an array
         .map(function (box, _id) {
             box.id = _id;
-            return sortMailboxes(box, id, level + 1);
+            return sortMailboxes(box, id);
         })
         .sortBy(function (box) {
             return box.id.toLowerCase();
@@ -633,32 +738,69 @@ function sortMailboxes(box, parent, level) {
     box = {
         cid: id,
         id: id,
-        level: level,
-        parent: parent,
+        level: 0,
+        special: getSpecialUse(box),
         subfolders: subfolders,
-        title: box.id,
-        type: getMailboxType(box)
+        title: box.id
     };
 
     return box;
 }
 
-function getMailboxType(box) {
+function getSpecialUse(box) {
     var attr = box.attribs || [];
     if (box.id === 'INBOX') return 'inbox';
     if (attr.indexOf('\\Trash') > -1) return 'trash';
     if (attr.indexOf('\\Drafts') > -1) return 'drafts';
     if (attr.indexOf('\\Junk') > -1) return 'spam';
-    return 'mailbox';
+    return '';
+}
+
+function fixNestingLevels(level, box) {
+    box.level = level;
+    _(box.subfolders).each(fixNestingLevels.bind(null, level + 1));
+}
+
+function sortArchive(box) {
+    if (!box.subfolders.length || !/^\d+$/.test(box.subfolders[0].title)) return;
+    box.subfolders = _(box.subfolders).sortBy(function (box) {
+        return -parseInt(box.title, 10);
+    });
+}
+
+function inheritSpecialUse(list, special) {
+    _(list).each(function (box) {
+        if (box.special === '') box.special = special || '';
+        inheritSpecialUse(box.subfolders, box.special);
+    });
+}
+
+function move(source, messages, target) {
+    return selectBox(source).then(function () {
+        var def = $.Deferred();
+        imap.move(messages, target, function (err) {
+            if (err) def.reject(err.toString()); else def.resolve();
+        });
+        return def;
+    });
 }
 
 module.exports = {
-    connection: imap,
+
+    connect: connect,
     selectBox: selectBox,
     fetchMailboxes: fetchMailboxes,
     fetchEnvelope: fetchEnvelope,
+    searchUnseen: searchUnseen,
     searchEnvelope: searchEnvelope,
     fetchMessage: fetchMessage,
     fetchPart: fetchPart,
-    getFlags: getFlags
+    getFlags: getFlags,
+    move: move,
+    ready: function () { return ready; },
+    connection: function () { return imap; },
+    state: function () { return imap ? imap.state : 'disconnected'; },
+    reuse: function (connection) {
+        imap = connection;
+    }
 };

@@ -50,26 +50,58 @@ if (theme !== undefined) setTheme(theme);
 <meta charset="utf-8">
 <title>Minimal UI</title>
 <link type="text/css" rel="stylesheet" href="assets/ui.css">
+<link href="/assets/favicon.ico" rel="icon" type="image/x-icon">
 </head>
 <body>
 
-<nav class="abs toolbar">
-    <h1>Minimal UI</h1>
-    <div class="search">
-        <!-- type="search" cannot be styled in Safari -->
-        <input type="text" class="search-field" placeholder="Search ...">
-    </div>
-    <div class="right">
-        <button class="theme-switch">&#9733;</button>
-        <button class="logout">Logout</button>
-    </div>
-</nav>
+<!-- Login screen -->
 
-<div class="abs screen">
-    <ul class="column folder-view" role="tree"></ul>
-    <ul class="column list-view" role="listbox" tabindex="-1"></ul>
-    <div class="column detail-view" role="complementary"></div>
+<div class="abs login" style="display: none">
+    <form action="/session" method="post" target="login" enctype="application/x-www-form-urlencoded">
+        <input type="text" name="user" id="input-user" placeholder="Username">
+        <input type="password" name="password" id="input-password" placeholder="Password">
+        <p class="login-feedback" style="display: none"></p>
+        <button type="submit">Sign in</button>
+    </form>
+    <iframe src="//:0" name="login" style="display: none"></iframe>
 </div>
+
+<!-- Application screen -->
+
+<div class="abs app" style="display: none">
+    <nav class="abs toolbar">
+        <h1>Minimal UI</h1>
+        <div class="search">
+            <!-- type="search" cannot be styled in Safari -->
+            <input type="text" class="search-field" placeholder="Search ...">
+        </div>
+        <div class="right">
+            <button class="theme-switch">Color</button>
+            <button class="logout">Logout</button>
+        </div>
+    </nav>
+    <div class="abs screen">
+        <ul class="column folder-view" role="tree"></ul>
+        <ul class="column list-view" role="listbox" tabindex="-1"></ul>
+        <div class="column detail-view" role="complementary"></div>
+    </div>
+</div>
+
+<div id="alert" style="display: none" role="alert" aria-live="assertive"></div>
+
+<ul id="contextmenu" style="display: none" role="menu">
+    <li data-cmd="reply" tabindex="0">Reply <i class="key">R</i></li>
+    <li data-cmd="reply-all" tabindex="0">Reply to all <i class="key">Shift-R</i></li>
+    <li data-cmd="forward" tabindex="0">Forward <i class="key">F</i></li>
+    <li class="divider"></li>
+    <li data-cmd="toggle-seen" tabindex="0">Mark as unseen/seen <i class="key">U</i></li>
+    <li class="divider"></li>
+    <li data-cmd="delete" tabindex="0">Delete <i class="key">Backspace</i></li>
+</ul>
+
+<div id="preview" class="abs" style="display: none" tabindex="-1"></div>
+
+<!-- Scripts -->
 
 <script src="assets/jquery.min.js"></script>
 <script src="assets/socket.io.js"></script>
