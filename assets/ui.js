@@ -107,7 +107,7 @@ $(function () {
     function loadFolders() {
         return http.GET('mail/mailboxes/').done(function (html) {
             folderView[0].innerHTML = html;
-            folderView.find('[data-cid="' + $.escape(currentFolder) + '"]').focus();
+            folderView.find('[data-cid="' + $.escape(currentFolder) + '"]').mousedown();
             loadFolderCount();
         });
     }
@@ -237,6 +237,7 @@ $(function () {
     }
 
     function clearDetailView() {
+        current = null;
         clearInterval(tick);
         $('.detail-view').scrollTop(0).prop('innerHTML', '');
     }
@@ -246,16 +247,17 @@ $(function () {
     }
 
     function focusListView() {
-        $('.list-view').children().first().focus();
+        $('.list-view').children('[tabindex]').focus();
     }
 
     function toggleSeenIfUnseen(cid) {
         var node = listView.find('[data-cid="' + $.escape(cid) + '"]');
-        if (node.hasClass('unseen')) cmd('toggle-seen', cid, true);
+        if (node.hasClass('unseen')) cmd('toggle-seen', [cid], true);
     }
 
     function cmd(name) {
         var args = Array.prototype.slice.call(arguments, 1);
+        $(document).trigger('before:cmd:' + name, args);
         $(document).trigger('cmd:' + name, args);
     }
 
@@ -291,22 +293,6 @@ $(function () {
 
     // Cursor navigation
 
-    $(document).on('focus', '.folder-view .folder', function (e) {
-        if (e.isDefaultPrevented()) return; else e.preventDefault();
-        var cid = $(e.currentTarget).attr('data-cid');
-        if (cid && cid !== 'mailboxes') fetchMailbox(cid);
-    });
-
-    $(document).on('keydown', '.folder-view .folder', function (e) {
-        var down = e.which === 40, up = e.which === 38;
-        if (!(down || up) || e.isDefaultPrevented()) return;
-        e.preventDefault();
-        var all = $('.folder-view .folder:visible'), index = all.index(document.activeElement);
-        index += down ? +1 : -1;
-        if (index < 0 || index >= all.length) return;
-        all.eq(index).focus();
-    });
-
     $(document).on('keydown', '.folder-view .folder', function (e) {
         var left = e.which === 37, right = e.which === 39;
         if (!(left || right) || e.isDefaultPrevented()) return;
@@ -314,20 +300,22 @@ $(function () {
         $(e.currentTarget).toggleClass('open', !!right);
     });
 
-    $(document).on('mousedown', '.list-view li', function (e) {
-        e.preventDefault();
-        $(e.currentTarget).focus();
-    });
-
     $(document).on('contextmenu', '.list-view li', function (e) {
         e.preventDefault();
-        var cid = $(e.currentTarget).attr('data-cid');
-        $('#contextmenu').attr('data-cid', cid).css({ top: e.pageY - 12, left: e.pageX + 12 }).show();
+        var selection = listView.selection.get(),
+            length = selection.length,
+            attr = { one: length === 1, some: length >= 1 };
+        $('#contextmenu > a').each(function () {
+            var req = $(this).attr('data-requires');
+            $(this).toggleClass('disabled', req && !attr[req]);
+        });
+        $('#contextmenu').css({ top: e.pageY - 12, left: e.pageX + 12 }).show();
     });
 
-    $(document).on('click', '#contextmenu li', function (e) {
-        var item = $(e.currentTarget), name = item.attr('data-cmd'), cid = item.parent().attr('data-cid');
-        if (name && cid) cmd(name, cid);
+    $(document).on('click', '#contextmenu a', function (e) {
+        e.preventDefault();
+        var item = $(e.currentTarget), name = item.attr('data-cmd'), selection = listView.selection.get();
+        if (name && selection.length) cmd(name, selection);
     });
 
     $(document).on('click', function () {
@@ -340,7 +328,10 @@ $(function () {
         if (name && cid) cmd(name, cid);
     });
 
-    // preview
+    //
+    // Peview
+    //
+
     $('#preview').on({
         show: function () {
             var $el = $(this), images = $el.data('images'), index = (images.length + $el.data('index')) % images.length;
@@ -367,35 +358,121 @@ $(function () {
         }
     });
 
-    $(document).on('focus', '.list-view li', function (e) {
-        if (e.isDefaultPrevented()) return; else e.preventDefault();
-        var cid = $(e.currentTarget).attr('data-cid');
-        if (cid) fetchMessage(cid);
+    //
+    // Selection handling list view
+    //
+
+    function Selection(view, selector, multiselect) {
+
+        var self = this;
+
+        function getItems(suffix) {
+            return view.find(selector + (suffix || ''));
+        }
+
+        function clear(items) {
+            (items || getItems()).removeClass('selected').removeAttr('tabindex');
+        }
+
+        function slice(items, a, b) {
+            a = items.index(a);
+            b = items.index(b);
+            return a <= b ? items.slice(a, b + 1) : items.slice(b, a + 1)
+        }
+
+        this.get = function () {
+            return getItems('.selected').map(function () { return $(this).attr('data-cid'); }).toArray();
+        };
+
+        function trigger() {
+            view.trigger('select', [self.get()]);
+        }
+
+        view.on('focusin focusout', function (e) {
+            $(this).toggleClass('has-focus', $.contains(this, document.activeElement));
+        });
+
+        var range = 0;
+
+        view.on('mousedown', 'li', function (e) {
+            if (e.isDefaultPrevented()) return; else e.preventDefault();
+            var item = $(this), items = getItems(), start, stop;
+            if (multiselect && e.shiftKey) {
+                // range
+                start = items.filter('[tabindex]');
+                stop = item;
+                clear(start.siblings());
+                slice(items, start, stop).addClass('selected');
+            } else if (multiselect && (e.ctrlKey || e.metaKey)) {
+                // multi
+                item.toggleClass('selected');
+            } else {
+                // single
+                // clear items except for right-clicking on a selected item
+                if (e.which !== 3 || !item.hasClass('selected')) clear(items);
+                item.addClass('selected');
+            }
+            item.attr('tabindex', 0).focus();
+            range = 0;
+            trigger();
+        });
+
+        // cursor up/down
+        view.on('keydown', 'li', function (e) {
+            var down = e.which === 40, up = e.which === 38;
+            if (!(down || up)) return;
+            if (e.isDefaultPrevented()) return; else e.preventDefault();
+            var items = getItems(), tab, index;
+            // get indexes
+            if (multiselect && e.shiftKey) {
+                tab = items.filter('[tabindex]');
+                index = items.index(tab) + range + (down ? +1 : -1);
+                if (index < 0 || index >= items.length) return;
+                clear(tab.siblings());
+                slice(items, tab, items.eq(index)).addClass('selected');
+                range += down ? +1 : -1;
+                trigger();
+                return;
+            }
+            // single
+            var item = items.filter('.selected' + (down ? ':last' : ':first'));
+            index = items.index(item) + (down ? +1 : -1);
+            // out of bounds?
+            if (index < 0) return view.trigger('above');
+            if (index >= items.length) return view.trigger('below');
+            clear(items);
+            items.eq(index).addClass('selected').attr('tabindex', 0).focus();
+            range = 0;
+            trigger();
+        });
+    }
+
+    listView.selection = new Selection(listView, 'li', true);
+    folderView.selection = new Selection(folderView, '.folder:visible', false);
+
+    listView.on('select', function (e, list) {
+        if (list.length === 1) fetchMessage(list[0]); else clearDetailView();
     });
 
-    // cursor up/down
-    $(document).on('keydown', '.list-view li', function (e) {
-        var down = e.which === 40, up = e.which === 38, current, prev;
-        if (!(down || up)) return;
-        e.preventDefault();
-        current = $(e.currentTarget);
-        if (down) return current.next().focus();
-        if ((prev = current.prev()).length) prev.focus(); else $('.search-field').focus();
+    listView.on('above', function () {
+        $('.search-field').focus();
     });
 
-    // space
-    $(document).on('keydown', '.list-view li', function (e) {
-        if (e.which !== 32) return;
+    folderView.on('select', function (e, list) {
+        var cid = list[0];
+        if (cid && cid !== 'mailboxes') fetchMailbox(cid);
+    });
+
+    $(document).on('mousedown', '.folder-view .fa.caret', function (e) {
         e.preventDefault();
-        var li = $(e.currentTarget), selected = li.attr('aria-selected') === 'true';
-        li.attr('aria-selected', selected ? 'false' : 'true');
+        $(this).closest('.folder').toggleClass('open');
     });
 
     // 'u' -> mark unseen/seen
     $(document).on('keydown', '.list-view li', function (e) {
         if (e.which !== 85) return;
-        var cid = $(e.currentTarget).attr('data-cid');
-        $(document).trigger('cmd:toggle-seen', cid);
+        var selected = listView.selection.get();
+        $(document).trigger('cmd:toggle-seen', [selected]);
     });
 
     // <backspace/del> -> delete message
@@ -406,6 +483,9 @@ $(function () {
         var cid = $(e.currentTarget).attr('data-cid');
         $(document).trigger('cmd:delete', cid);
     });
+
+    // no native context-menu
+    $(document).on('contextmenu', false);
 
     // Theme switch
     $(document).on('click', '.theme-switch', function () {
@@ -438,11 +518,14 @@ $(function () {
             });
         },
 
-        'cmd:toggle-seen': function (e, cid, state) {
-            var node = listView.find('[data-cid="' + $.escape(cid) + '"]');
+        'cmd:toggle-seen': function (e, cids, state) {
+            // use first message to decide
+            var node = listView.find('[data-cid="' + $.escape(cids[0]) + '"]');
             if (state === undefined) state = node.hasClass('unseen');
-            node.toggleClass('unseen', !state);
-            http.PUT('mail/messages/' + cid + '/flags', { seen: state });
+            cids.forEach(function (cid) {
+                listView.find('[data-cid="' + $.escape(cid) + '"]').toggleClass('unseen', !state);
+            });
+            http.PUT('mail/messages/flags?seen=' + state, cids);
         },
 
         'cmd:delete': function (e, cid) {
@@ -479,26 +562,26 @@ $(function () {
         loadFolders();
         fetchMailbox(currentFolder);
 
-        // Socket support
-        var socket = window.socket = io.connect('//' + location.host);
-        socket.on('update', function (data) {
-            console.log('socket:update', data)
-            if (!data.flags) return;
-            listView.children('[data-seqno="' + data.seqno + '"]')
-                .toggleClass('unseen', !data.flags.seen)
-                .toggleClass('deleted', data.flags.deleted);
-        });
-        socket.on('uidvalidity', function (data) {
-            console.log('socket:uidvalidity', data)
-        });
-        // ignore first event right after page reload
-        var first = true;
-        socket.on('mail', function (data) {
-            if (first) { first = false; return; }
-            console.log('socket:mail', data);
-            fetchMailbox();
-            // new Audio('assets/beep.mp3').play();
-        });
+        // // Socket support
+        // var socket = window.socket = io.connect('//' + location.host);
+        // socket.on('update', function (data) {
+        //     console.log('socket:update', data)
+        //     if (!data.flags) return;
+        //     listView.children('[data-seqno="' + data.seqno + '"]')
+        //         .toggleClass('unseen', !data.flags.seen)
+        //         .toggleClass('deleted', data.flags.deleted);
+        // });
+        // socket.on('uidvalidity', function (data) {
+        //     console.log('socket:uidvalidity', data)
+        // });
+        // // ignore first event right after page reload
+        // var first = true;
+        // socket.on('mail', function (data) {
+        //     if (first) { first = false; return; }
+        //     console.log('socket:mail', data);
+        //     fetchMailbox();
+        //     // new Audio('assets/beep.mp3').play();
+        // });
     }
 });
 

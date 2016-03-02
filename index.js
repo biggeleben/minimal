@@ -53,52 +53,30 @@ app.get('/', function (req, res) {
 // Session handling
 //
 
-var connections = {};
-
 app.get('/session', function (req, res) {
 
-    if (!req.session || !req.session.id) return fail();
-
-    var id = req.session.id,
-        connection = connections[id];
-
-    if (connection && connection.state === 'authenticated') {
-        imap.reuse(connection);
-        success();
-    } else if (req.session && req.session.user && req.session.password) {
-        imap.connect(req.session.user, req.session.password)
-            .done(function (connection) {
-                connections[id] = connection;
-            })
-            .done(success)
-            .fail(fail);
-    } else {
-        fail();
-    }
-
-    function success() {
-        res.type('json').send(JSON.stringify({ id: id }, null, 4));
-    }
-
-    function fail() {
-        res.status(401).type('json').send('{}');
-    }
+    imap.getConnection(req, res).done(function success() {
+        res.type('json').send(JSON.stringify({ id: req.session.id }, null, 4));
+    });
 });
 
 app.post('/session', function (req, res) {
+
+    var connection;
 
     // check if redis is down
     if (!req.session) {
         res.status(500);
         send('login_callback_error', { message: 'Session store is down' });
     } else {
-        imap.connect(req.body.user, req.body.password).done(success).fail(error);
+        connection = new imap.Connection(req.body.user, req.body.password);
+        connection.promise().done(success).fail(error);
     }
 
-    function success(connection) {
+    function success() {
         req.session.user = req.body.user;
         req.session.password = req.body.password;
-        connections[req.session.id] = connection;
+        imap.storeConnection(req.session.id, connection);
         send('login_callback', {});
     }
 
@@ -117,8 +95,10 @@ app.post('/session', function (req, res) {
 });
 
 app.delete('/session', function (req, res) {
-    delete connections[req.session.id];
-    req.session.destroy();
+    if (req.session) {
+        imap.dropConnection(req.session.id);
+        req.session.destroy();
+    }
     res.type('json').send('{}');
 });
 
@@ -166,28 +146,32 @@ app.get('/mail/mailboxes/', function (req, res) {
         }
     };
 
-    imap.fetchMailboxes()
-        .done(function (data) {
-            if (req.query.json) {
-                res.type('text').send(JSON.stringify(data, null, 4));
-            } else {
-                var html = '';
-                // special use
-                _(data.subfolders).each(function (data) {
-                    html += tmpl({ data: data, util: util });
-                });
-                res.send(html);
-            }
-        })
-        .fail(function (error) {
-            res.type('text').json({ error: error });
-        });
+    imap.getConnection(req, res).done(function (connection) {
+        connection.fetchMailboxes()
+            .done(function (data) {
+                if (req.query.json) {
+                    res.type('text').send(JSON.stringify(data, null, 4));
+                } else {
+                    var html = '';
+                    // special use
+                    _(data.subfolders).each(function (data) {
+                        html += tmpl({ data: data, util: util });
+                    });
+                    res.send(html);
+                }
+            })
+            .fail(function (error) {
+                res.type('text').json({ error: error });
+            });
+    });
 });
 
 app.put('/mail/mailboxes/count', function (req, res) {
 
-    imap.searchUnseen('INBOX').done(function (result) {
-        res.send({ INBOX: result.length });
+    imap.getConnection(req, res).done(function (connection) {
+        connection.searchUnseen('INBOX').done(function (result) {
+            res.send({ INBOX: result.length });
+        });
     });
 });
 
@@ -196,8 +180,8 @@ app.put('/mail/mailboxes/count', function (req, res) {
 //
 
 var tmplEnvelope = _.template(
-    '<% _(list).each(function (data) { %>' +
-    '<li role="option" tabindex="-1" data-cid="<%- data.cid %>" data-seqno="<%- data.seqno %>" class="<%= util.getFlagClasses(data) %>">' +
+    '<% _(list).each(function (data, index) { %>' +
+    '<li role="option" <%= (index === 0 ? "tabindex=0" : "") %> data-cid="<%- data.cid %>" data-seqno="<%- data.seqno %>" class="<%= util.getFlagClasses(data) %>">' +
     '<div class="row">' +
     '  <time class="date gray"><%- util.getDate(data.date) %></time>' +
     '  <div class="who ellipsis"><%- util.getWho(data.from) %></div>' +
@@ -214,40 +198,44 @@ var tmplError = _.template('<li class="error"><%- error %></li>');
 
 app.get(/^\/mail\/messages\/(.+)\/$/, function (req, res) {
 
-    imap.fetchEnvelope(req.params[0])
-        .done(function (list) {
-            if (req.query.json) {
-                res.type('json').send(JSON.stringify(list, null, 4));
-            } else if (!list || list.length === 0) {
-                res.send('<li class="hint">No messages</li>');
-            } else {
-                res.send(tmplEnvelope({ list: list, util: util }));
-            }
-        })
-        .fail(function (error) {
-            if (req.query.json) {
-                res.type('text').json({ error: error });
-            } else {
-                res.send(tmplError({ error: error }));
-            }
-        });
+    imap.getConnection(req, res).done(function (connection) {
+        connection.fetchEnvelope(req.params[0])
+            .done(function (list) {
+                if (req.query.json) {
+                    res.type('json').send(JSON.stringify(list, null, 4));
+                } else if (!list || list.length === 0) {
+                    res.send('<li class="hint">No messages</li>');
+                } else {
+                    res.send(tmplEnvelope({ list: list, util: util }));
+                }
+            })
+            .fail(function (error) {
+                if (req.query.json) {
+                    res.type('text').json({ error: error });
+                } else {
+                    res.send(tmplError({ error: error }));
+                }
+            });
+    });
 });
 
 app.search(/^\/mail\/messages\/(.+)\/$/, function (req, res) {
 
-    imap.searchEnvelope(req.params[0], req.query.query)
-        .done(function (list) {
-            if (req.query.json) {
-                res.type('json').send(JSON.stringify(list, null, 4));
-            } else if (!list || list.length === 0) {
-                res.send('<li class="hint">No matches</li>');
-            } else {
-                res.send(tmplEnvelope({ list: list, util: util }));
-            }
-        })
-        .fail(function (error) {
-            res.type('text').json({ error: error });
-        });
+    imap.getConnection(req, res).done(function (connection) {
+        connection.searchEnvelope(req.params[0], req.query.query)
+            .done(function (list) {
+                if (req.query.json) {
+                    res.type('json').send(JSON.stringify(list, null, 4));
+                } else if (!list || list.length === 0) {
+                    res.send('<li class="hint">No matches</li>');
+                } else {
+                    res.send(tmplEnvelope({ list: list, util: util }));
+                }
+            })
+            .fail(function (error) {
+                res.type('text').json({ error: error });
+            });
+    });
 });
 
 //
@@ -255,7 +243,7 @@ app.search(/^\/mail\/messages\/(.+)\/$/, function (req, res) {
 //
 
 var tmplMessage = _.template(
-    '<header>' +
+    '<header data-cid="<%- data.cid %>">' +
     // SUBJECT
     '<h1 class="subject"><%- data.subject || "No subject" %></h1>' +
     // DATE
@@ -311,85 +299,102 @@ tmplMessage.util = {
     },
 
     getAttachments: function (cid, list) {
-        return list.map(function (item) {
-            return '<a href="mail/messages/' + cid + '.' + item.id + '" target="_blank">' +
-                _.escape(item.filename.replace(/\s/g, '\u00A0')) +
-                '</a>\u00A0\u00A0 ';
-        });
+        return list
+            .map(function (item) {
+                var filename = item.filename ? '//' + encodeURIComponent(item.filename) : '';
+                return '<a href="mail/messages/' + cid + '.' + item.id + filename + '" target="_blank">' +
+                    _.escape(item.filename.replace(/\s/g, '\u00A0')) +
+                    '</a>';
+            })
+            .join('\u00a0\u00a0 ');
     }
 };
 
 app.get(/^\/mail\/messages\/(.+)\/(\d+)$/, function (req, res) {
 
     var folder = req.params[0], uid = req.params[1];
-    imap.fetchMessage(folder, uid)
-        .done(function (result) {
-            result.content = {
-                header: tmplMessage({ data: result, util: tmplMessage.util }),
-                message: result.content
-            };
-            res.type('json').send(JSON.stringify(result, null, 4));
-        })
-        .fail(function (error) {
-            res.type('text').json({ error: error });
-        });
+
+    imap.getConnection(req, res).done(function (connection) {
+        connection.fetchMessage(folder, uid)
+            .done(function (result) {
+                result.content = {
+                    header: tmplMessage({ data: result, util: tmplMessage.util }),
+                    message: result.content
+                };
+                res.type('json').send(JSON.stringify(result, null, 4));
+            })
+            .fail(function (error) {
+                res.type('text').json({ error: error });
+            });
+    });
 });
 
 //
 // An attachment
 //
 
-app.get(/^\/mail\/messages\/(.+)\/(\d+)\.(\d[\d\.]*)$/, function (req, res) {
+app.get(/^\/mail\/messages\/(.+)\/(\d+)\.(\d[\d\.]*)(\/\/[^\/]+)?$/, function (req, res) {
 
-    imap.fetchPart(req.params[0], req.params[1], req.params[2])
-        .done(function (result) {
+    imap.getConnection(req, res).done(function (connection) {
+        connection.fetchPart(req.params[0], req.params[1], req.params[2])
+            .done(function (result) {
 
-            if (req.query.json) {
-                result.content = result.content.substr(0, 20) + '...';
-                res.type('json').send(JSON.stringify(result, null, 4));
-                return;
-            }
-
-            if (result.filename) {
-                res.set('Content-Disposition', 'inline; filename="' + result.filename + '"');
-            }
-
-            if (result.encoding === 'base64') {
-                var buffer = new Buffer(result.content, 'base64');
-                if (result.contentType === 'image/jpeg') {
-                    autoOrientImage(buffer, function (err, buffer) {
-                        res.set('Cache-Control', 'private, max-age=864000');
-                        res.set('Expires', new Date(Date.now() + 864000000).toUTCString());
-                        res.type('image/jpeg').send(buffer);
-                    });
-                } else {
-                    res.type(result.contentType).send(buffer);
+                if (req.query.json) {
+                    result.content = result.content.substr(0, 20) + '...';
+                    res.type('json').send(JSON.stringify(result, null, 4));
+                    return;
                 }
-            } else {
-                res.type(result.contentType).send(result.content);
-            }
-        })
-        .fail(function (error) {
-            res.type('text').json({ error: error });
-        });
+
+                if (result.filename) {
+                    res.set('Content-Disposition', 'inline; filename="' + result.filename + '"');
+                }
+
+                if (result.encoding === 'base64') {
+                    var buffer = new Buffer(result.content, 'base64');
+                    if (result.contentType === 'image/jpeg') {
+                        autoOrientImage(buffer, function (err, buffer) {
+                            res.set('Cache-Control', 'private, max-age=864000');
+                            res.set('Expires', new Date(Date.now() + 864000000).toUTCString());
+                            res.type('image/jpeg').send(buffer);
+                        });
+                    } else {
+                        res.type(result.contentType).send(buffer);
+                    }
+                } else {
+                    res.type(result.contentType).send(result.content);
+                }
+            })
+            .fail(function (error) {
+                res.type('text').json({ error: error });
+            });
+    });
 });
 
 // simple rotation; base64 only
 function autoOrientImage(buffer, callback) {
     gd.open(buffer).resize({ width: 1024 }).autoOrient().save({ quality: 70 }, callback);
-    // sharp(buffer).rotate().resize(1024).quality(70).toBuffer(callback);
 }
 
 //
 // Set flag
 //
 
-app.put(/^\/mail\/messages\/(.+)\/(\d+)\/flags$/, function (req, res) {
+app.put(/^\/mail\/messages\/flags$/, function (req, res) {
 
-    var folder = req.params[0], id = req.params[1];
-    imap.selectBox(folder).done(function () {
-        if (req.query.seen === 'true') imap.connection().addFlags(id, 'Seen'); else imap.connection().delFlags(id, 'Seen');
-        res.type('json').json({ state: Boolean(req.query.seen) });
+    var items = req.body, seen = req.query.seen === 'true';
+
+    imap.getConnection(req, res).then(function (connection) {
+        return _(items).reduce(function (def, item) {
+            return def.then(function () {
+                item = util.cid(item);
+                return connection.selectBox(item.folder_id).done(function () {
+                    connection.raw()[seen ? 'addFlags' : 'delFlags'](item.id, 'Seen');
+                });
+            });
+        }, $.when());
+    })
+    .always(function () {
+        res.type('json').json({});
     });
 });
 
@@ -401,31 +406,36 @@ app.delete(/^\/mail\/messages\/(.+)\/(\d+)$/, function (req, res) {
 
     var folder = req.params[0], id = req.params[1];
 
-    imap.move(folder, [id], 'INBOX/Trash')
-        .done(function () {
-            res.send({});
-        })
-        .fail(function (e) {
-            res.status(500).send({ message: e });
-        });
+    imap.getConnection(req, res).done(function (connection) {
+        connection.move(folder, [id], 'INBOX/Trash')
+            .done(function () {
+                res.send({});
+            })
+            .fail(function (e) {
+                res.status(500).send({ message: e });
+            });
+    });
 });
+
+// GO!
+
+var io = app.listen(1337);
 
 //
 // Socket stuff
 //
 
-var io = require('socket.io').listen(app.listen(1337));
-
-io.sockets.on('connection', function (socket) {
-    imap.ready().done(function (connection) {
-        connection.on('update', function (seqno, info) {
-            socket.emit('update', { flags: !!info.flags && imap.getFlags(info.flags), modseq: info.modseq, seqno: seqno });
-        });
-        connection.on('mail', function (numNewMsgs) {
-            socket.emit('mail', { numNewMsgs: numNewMsgs });
-        });
-        connection.on('uidvalidity', function (uidvalidity) {
-            socket.emit('uidvalidity', { uidvalidity: uidvalidity });
-        });
-    });
-});
+// io = require('socket.io').listen(io);
+// io.sockets.on('connection', function (socket) {
+//     imap.ready().done(function (connection) {
+//         connection.on('update', function (seqno, info) {
+//             socket.emit('update', { flags: !!info.flags && imap.getFlags(info.flags), modseq: info.modseq, seqno: seqno });
+//         });
+//         connection.on('mail', function (numNewMsgs) {
+//             socket.emit('mail', { numNewMsgs: numNewMsgs });
+//         });
+//         connection.on('uidvalidity', function (uidvalidity) {
+//             socket.emit('uidvalidity', { uidvalidity: uidvalidity });
+//         });
+//     });
+// });

@@ -82,22 +82,22 @@ if (theme !== undefined) setTheme(theme);
     </nav>
     <div class="abs screen">
         <ul class="column folder-view" role="tree"></ul>
-        <ul class="column list-view" role="listbox" tabindex="-1"></ul>
+        <ul class="column list-view" role="listbox"></ul>
         <div class="column detail-view" role="complementary"></div>
     </div>
 </div>
 
 <div id="alert" style="display: none" role="alert" aria-live="assertive"></div>
 
-<ul id="contextmenu" style="display: none" role="menu">
-    <li data-cmd="reply" tabindex="0">Reply <i class="key">R</i></li>
-    <li data-cmd="reply-all" tabindex="0">Reply to all <i class="key">Shift-R</i></li>
-    <li data-cmd="forward" tabindex="0">Forward <i class="key">F</i></li>
-    <li class="divider"></li>
-    <li data-cmd="toggle-seen" tabindex="0">Mark as unseen/seen <i class="key">U</i></li>
-    <li class="divider"></li>
-    <li data-cmd="delete" tabindex="0">Delete <i class="key">Backspace</i></li>
-</ul>
+<div id="contextmenu" style="display: none">
+    <a href="#" data-cmd="reply" data-requires="one">Reply <i class="key">R</i></a>
+    <a href="#" data-cmd="reply-all" data-requires="one">Reply to all <i class="key">Shift-R</i></a>
+    <a href="#" data-cmd="forward" data-requires="some">Forward <i class="key">F</i></a>
+    <div class="divider"></div>
+    <a href="#" data-cmd="toggle-seen" data-requires="some">Mark as unseen/seen <i class="key">U</i></a>
+    <div class="divider"></div>
+    <a href="#" data-cmd="delete" data-requires="one">Delete <i class="key">Backspace</i></a>
+</div>
 
 <div id="preview" class="abs" style="display: none" tabindex="-1"></div>
 

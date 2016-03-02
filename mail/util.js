@@ -37,5 +37,16 @@ module.exports = {
         if (data.flags.deleted) classes.push('deleted');
         if (!data.flags.seen) classes.push('unseen');
         return classes.join(' ');
+    },
+
+    cid: function (arg) {
+        if (arguments.length === 2) {
+            return encodeURIComponent(arguments[0]) + '/' + encodeURIComponent(arguments[1]);
+        } else if (_.isString(arg)) {
+            var parts = arg.split(/\//);
+            return { folder_id: decodeURIComponent(parts[0]), id: decodeURIComponent(parts[1]) };
+        } else {
+            return encodeURIComponent(arg.folder_id) + '/' + encodeURIComponent(arg.id);
+        }
     }
 };

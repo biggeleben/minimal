@@ -15,33 +15,37 @@ var Imap = require('imap'),
     _ = require('underscore'),
     moment = require('moment'),
     iconv = require('iconv-lite'),
-    sanitize = require('sanitize-html'),
     util = require('./util'),
-    config = require('../config');
+    config = require('../config'),
+    content = require('./content');
 
 //
-// Connetion handling
+// Connection handling
 //
 
-var imap, ready = $.Deferred();
+function Connection(user, password) {
 
-function onReady() {
-    ready.resolve(imap);
-}
+    var imap, ready = $.Deferred();
 
-function onError(error) {
-    console.error('Connection error', error);
-    ready.reject(error);
-}
+    function onReady() {
+        ready.resolve(imap);
+    }
 
-function onEnd() {
-    console.error('Connection ended');
-    ready.reject();
-}
+    function onError(error) {
+        console.error('Connection error', error);
+        ready.reject(error);
+    }
 
-function connect(user, password) {
+    function onEnd() {
+        console.error('Connection ended');
+        ready.reject();
+    }
 
-    imap = new Imap({
+    //
+    // Connect
+    //
+
+    var imap = new Imap({
         user: user,
         password: password,
         host: config.host,
@@ -56,543 +60,375 @@ function connect(user, password) {
     imap.once('end', onEnd);
     imap.connect();
 
-    return ready.promise();
-}
+    this.reconnect = function () {
+        ready.reject();
+        ready = $.Deferred();
+        imap.connect();
+        return ready.promise();
+    };
 
-function reconnect() {
-    ready.reject();
-    ready = $.Deferred();
-    imap.connect();
-    return ready.promise();
-}
+    this.end = function () {
+        imap.end();
+    };
 
-//
-// Fetch / Search
-//
+    this.state = function () {
+        return imap ? imap.state : 'disconnected';
+    };
 
-function fetchEnvelope(folder) {
+    this.promise = function () {
+        return ready.promise();
+    };
 
-    return selectBox(folder, true).then(function (box) {
-        var total = box.messages.total,
-            start = Math.max(1, total - 50),
-            range = start + ':' + total;
-        if (total === 0) return $.when([]);
-        var f = imap.seq.fetch(range, {
-            bodies: 'HEADER.FIELDS (X-PRIORITY CONTENT-TYPE)',
-            envelope: true,
-            size: true,
-            struct: false
-        });
-        return processEnvelope(f, folder);
-    });
-}
+    this.raw = function () {
+        return imap;
+    };
 
-function searchUnseen(folder) {
-    return selectBox(folder).then(function (box) {
-        return search(['UNSEEN', 'UNDELETED']);
-    });
-}
+    //
+    // Select mailbox with retry
+    //
 
-function searchEnvelope(folder, query) {
+    this.selectBox = (function () {
 
-    query = String(query || '').trim();
+        var retryCount = 0;
 
-    // over virtual/all?
-    if (query.indexOf(':all') === 0) {
-        folder = 'virtual/all';
-        query = query.substr(5);
-    }
+        function openBox(folder, readOnly) {
+            var def = $.Deferred();
+            imap.openBox(folder, !!readOnly, function (err, box) {
+                if (err) return def.reject(err); else def.resolve(box);
+            });
+            return def.promise();
+        }
 
-    if (query === '') return $.when([]);
+        function selectBox(folder, readOnly) {
+            return ready.then(function () {
+                try {
+                    return openBox(folder, readOnly);
+                } catch (e) {
+                    if (e.toString() === 'Error: Not authenticated' && retryCount < 2) {
+                        // retry once
+                        retryCount++;
+                        return reconnect().then(function () {
+                            return selectBox(folder, readOnly).done(function () {
+                                retryCount = 0;
+                            });
+                        });
+                    } else {
+                        return $.Deferred().reject(e);
+                    }
+                }
+            });
+        }
 
-    return selectBox(folder).then(function (box) {
-        return search(parseQuery(query)).then(function (results) {
-            if (results.length === 0) return $.when([]);
-            results = _(results).last(100);
-            var f = imap.fetch(results, {
+        return selectBox;
+
+    }());
+
+    //
+    // Fetch envelope data
+    //
+
+    this.fetchEnvelope = function (folder) {
+
+        return this.selectBox(folder, true).then(function (box) {
+            var total = box.messages.total,
+                start = Math.max(1, total - 50),
+                range = start + ':' + total;
+            if (total === 0) return $.when([]);
+            var f = imap.seq.fetch(range, {
                 bodies: 'HEADER.FIELDS (X-PRIORITY CONTENT-TYPE)',
-                extensions: folder === 'virtual/all' && ['X-MAILBOX', 'X-REAL-UID'],
                 envelope: true,
                 size: true,
                 struct: false
             });
             return processEnvelope(f, folder);
         });
-    });
-}
+    };
 
-function parseQuery(query) {
-    // all lowercase
-    query = query.toLowerCase();
-    // unseen only?
-    var flag = 'UNDELETED';
-    if (/\:unseen/i.test(query)) {
-        flag = 'UNSEEN';
-        query = query.replace(/\:unseen/i, '');
-    }
-    // uses special syntax?
-    if (/(subject|from|to|cc|year)\:/.test(query)) {
-        // split into sub queries
-        var expressions = query.split(/(?:\s*)(\w+\:(?:"[^"]"|\w+))(?:\s*)/).map(function (phrase) {
-            if (!phrase) return false;
-            var pair = phrase.split(':', 2),
-                field = pair[0],
-                value = (pair[1] || '').replace(/^"|"$/g, '');
-            switch (field) {
-                case 'subject': return [['SUBJECT', value]];
-                case 'from': return [['FROM', value]];
-                case 'to': return [['TO', value]];
-                case 'cc': return [['CC', value]];
-                case 'year': return byYear(value);
-                default: return [['SUBJECT', phrase]];
-            }
+    this.searchEnvelope = function (folder, query) {
+
+        query = String(query || '').trim();
+
+        // over virtual/all?
+        if (query.indexOf(':all') === 0) {
+            folder = 'virtual/all';
+            query = query.substr(5);
+        }
+
+        if (query === '') return $.when([]);
+
+        return this.selectBox(folder).then(function (box) {
+            return search(parseQuery(query)).then(function (results) {
+                if (results.length === 0) return $.when([]);
+                results = _(results).last(100);
+                var f = imap.fetch(results, {
+                    bodies: 'HEADER.FIELDS (X-PRIORITY CONTENT-TYPE)',
+                    extensions: folder === 'virtual/all' && ['X-MAILBOX', 'X-REAL-UID'],
+                    envelope: true,
+                    size: true,
+                    struct: false
+                });
+                return processEnvelope(f, folder);
+            });
         });
-        return _([flag].concat(expressions)).chain().flatten(true).compact().value();
-    } else if (query) {
-        return [flag, ['OR', ['SUBJECT', query], ['FROM', query]]]
-    } else {
-        return [flag];
+    };
+
+    this.searchUnseen = function (folder) {
+        return this.selectBox(folder).then(function (box) {
+            return search(['UNSEEN', 'UNDELETED']);
+        });
+    };
+
+    function parseQuery(query) {
+        // all lowercase
+        query = query.toLowerCase();
+        // unseen only?
+        var flag = 'UNDELETED';
+        if (/\:unseen/i.test(query)) {
+            flag = 'UNSEEN';
+            query = query.replace(/\:unseen/i, '');
+        }
+        // uses special syntax?
+        if (/(subject|from|to|cc|year)\:/.test(query)) {
+            // split into sub queries
+            var expressions = query.split(/(?:\s*)(\w+\:(?:"[^"]"|\w+))(?:\s*)/).map(function (phrase) {
+                if (!phrase) return false;
+                var pair = phrase.split(':', 2),
+                    field = pair[0],
+                    value = (pair[1] || '').replace(/^"|"$/g, '');
+                switch (field) {
+                    case 'subject': return [['SUBJECT', value]];
+                    case 'from': return [['FROM', value]];
+                    case 'to': return [['TO', value]];
+                    case 'cc': return [['CC', value]];
+                    case 'year': return byYear(value);
+                    default: return [['SUBJECT', phrase]];
+                }
+            });
+            return _([flag].concat(expressions)).chain().flatten(true).compact().value();
+        } else if (query) {
+            return [flag, ['OR', ['SUBJECT', query], ['FROM', query]]]
+        } else {
+            return [flag];
+        }
     }
-}
 
-function byYear(value) {
-    if (!/^\d+$/.test(value)) return false;
-    var year = parseInt(value, 10);
-    return [['SINCE', '01-Jan-' + year], ['BEFORE', '01-Jan-' + (year + 1)]];
-}
+    function byYear(value) {
+        if (!/^\d+$/.test(value)) return false;
+        var year = parseInt(value, 10);
+        return [['SINCE', '01-Jan-' + year], ['BEFORE', '01-Jan-' + (year + 1)]];
+    }
 
-//
-// Select mailbox with retry
-//
-
-var selectBox = (function () {
-
-    var retryCount = 0;
-
-    function openBox(folder, readOnly) {
+    function search(query) {
         var def = $.Deferred();
-        imap.openBox(folder, !!readOnly, function (err, box) {
-            if (err) return def.reject(err); else def.resolve(box);
+        imap.search(query, function (err, results) {
+            if (err) def.reject(err); else def.resolve(results);
         });
         return def.promise();
     }
 
-    function selectBox(folder, readOnly) {
-        return ready.then(function () {
-            try {
-                return openBox(folder, readOnly);
-            } catch (e) {
-                if (e.toString() === 'Error: Not authenticated' && retryCount < 2) {
-                    // retry once
-                    retryCount++;
-                    return reconnect().then(function () {
-                        return selectBox(folder, readOnly).done(function () {
-                            retryCount = 0;
-                        });
-                    });
-                } else {
-                    return $.Deferred().reject(e);
-                }
-            }
-        });
-    }
+    function processEnvelope(f, mailbox) {
 
-    return selectBox;
+        var def = $.Deferred();
+        var messages = [];
 
-}());
-
-function search(query) {
-    var def = $.Deferred();
-    imap.search(query, function (err, results) {
-        if (err) def.reject(err); else def.resolve(results);
-    });
-    return def.promise();
-}
-
-function processEnvelope(f, mailbox) {
-
-    var def = $.Deferred();
-    var messages = [];
-
-    f.on('message', function (msg, seqno) {
-        var attr = {}, headers = '';
-        msg.on('body', function(stream, info) {
-            stream.on('data', function(chunk) {
-                headers += chunk.toString('utf8');
-            });
-        });
-        msg.once('attributes', function (attrs) {
-            _.extend(attr, attrs);
-        });
-        msg.once('end', function() {
-            headers = Imap.parseHeader(headers);
-            var env = attr.envelope || {},
-                contentType = getContentType(headers),
-                folder = attr['x-mailbox'] || mailbox,
-                uid = attr['x-real-uid'] || attr.uid;
-            var result = {
-                attachments: {
-                    heuristic: contentType === 'multipart/mixed',
-                    parts: null
-                },
-                bcc: packAddress(env.bcc),
-                blockedImages: false,
-                cc: packAddress(env.cc),
-                cid: folder + '/' + uid,
-                contentType: contentType,
-                date: +moment(env.date),
-                dateStr: util.getDate(env.date),
-                dateFullStr: util.getFullDate(env.date),
-                flags: getFlags(attr.flags),
-                folder: folder,
-                from: packAddress(env.from),
-                id: uid,
-                messageId: env.messageId,
-                priority: getPriority(headers),
-                replyTo: packAddress(env.replyTo),
-                size: attr.size,
-                seqno: seqno,
-                subject: env.subject,
-                to: packAddress(env.to)
-            };
-            if (attr.struct) result.struct = attr.struct;
-            messages.push(result);
-        });
-    });
-    f.once('error', function (error) {
-        console.error('Error in processEnvelope()', error);
-        def.reject(error);
-    });
-    f.once('end', function() {
-        def.resolve(messages.reverse());
-    });
-
-    return def.promise();;
-}
-
-function packAddress(list) {
-    return _(list).map(function (item) {
-        var name = String(item.name || '').replace(/^["']+|["']+$/g, ''),
-            address = String(item.mailbox + '@' + item.host).toLowerCase();
-        return { name: name, address: address };
-    });
-}
-
-function getContentType(headers) {
-    var value = headers['content-type'];
-    if (!_.isArray(value)) return 'text/plain';
-    return String(value[0] || '').toLowerCase().split(';')[0];
-}
-
-function getPriority(headers) {
-    var value = headers['x-priority'];
-    if (!_.isArray(value)) return 3;
-    return parseInt(value[0], 10);
-}
-
-function getFlags(value) {
-    var result = { answered: false, deleted: false, draft: false, forwarded: false, seen: false, spam: false };
-    _(value).each(function (flag) {
-        var key = String(flag).substr(1).toLowerCase();
-        if (flag[0] === '\\' && key in result) result[key] = true;
-        if (flag === 'Junk') result.spam = true;
-    });
-    return result;
-}
-
-function getFilename(str) {
-    if (!str) return '';
-    var match = str.match(/filename=(["'])?(.+)\1(;|$)/);
-    return match ? match[2] : '';
-}
-
-//
-// Get parts
-//
-
-function fetchParts(folder, uid) {
-
-    function getParts(obj) {
-        if (_.isArray(obj)) return _(obj).map(getParts);
-        if (_.isObject(obj) && obj.partID) return {
-            cid: obj.id || '',
-            charset: (obj.params && obj.params.charset) || '',
-            content: '',
-            contentType: obj.type + '/' + obj.subtype,
-            disposition: (obj.disposition && obj.disposition.type) || 'inline',
-            encoding: obj.encoding,
-            filename: (obj.disposition && obj.disposition.params && obj.disposition.params.filename) || '',
-            id: obj.partID,
-            size: obj.size
-        };
-        return null;
-    }
-
-    return selectBox(folder, false).then(function (box) {
-        var f = imap.fetch(uid, { envelope: true, struct: true });
-        return processEnvelope(f, folder).then(function (result) {
-            result = _.isArray(result) ? result[0] : result;
-            var parts = getParts(result.struct || []);
-            result.parts = _(parts).chain().flatten().compact().value();
-            if (isHTML(result.parts)) result.contentType = 'text/html';
-            return result;
-        });
-    });
-}
-
-//
-// Get message
-//
-
-function fetchMessage(folder, uid) {
-
-    var def = $.Deferred();
-
-    fetchParts(folder, uid)
-        .done(function (result) {
-
-            var hash = getPartsHash(result.parts),
-                contentParts = getContentParts(result.parts, folder, uid),
-                mimeParts = getMimeParts(contentParts);
-
-            var f = imap.fetch(uid, {
-                bodies: mimeParts,
-                markSeen: true,
-                struct: false
-            });
-
-            f.on('message', function (msg) {
-                msg.on('body', function(stream, info) {
-                    var part = _(contentParts).findWhere({ id: info.which });
-                    if (!part) return;
-                    var buffer = new Buffer('');
-                    stream.on('data', function (chunk) {
-                        buffer = Buffer.concat([buffer, chunk]);
-                    });
-                    stream.once('end', function () {
-                        if (part.encoding === 'base64') {
-                            part.content = mime.decodeBase64(buffer.toString(), part.charset);
-                        } else if (part.encoding === 'quoted-printable') {
-                            part.content = mime.decodeQuotedPrintable(buffer.toString(), part.charset);
-                        } else if (part.charset) {
-                            part.content = iconv.decode(buffer, part.charset);
-                        } else {
-                            part.content = buffer.toString();
-                        }
-                        // clean up
-                        if (part.contentType === 'text/plain') part.content = cleanUpText(part.content);
-                    });
+        f.on('message', function (msg, seqno) {
+            var attr = {}, headers = '';
+            msg.on('body', function(stream, info) {
+                stream.on('data', function(chunk) {
+                    headers += chunk.toString('utf8');
                 });
             });
-            f.once('error', function (error) {
-                def.reject(error);
+            msg.once('attributes', function (attrs) {
+                _.extend(attr, attrs);
             });
-            f.once('end', function() {
-                result.hash = hash;
-                delete result.struct;
-                assembleContent(contentParts, result);
-                fixImages(result);
-                sanitizeHTML(result);
-                addStructure(result);
-                removeLeadingWhiteSpace(result);
-                def.resolve(result);
+            msg.once('end', function() {
+                headers = Imap.parseHeader(headers);
+                var env = attr.envelope || {},
+                    contentType = getContentType(headers),
+                    folder = attr['x-mailbox'] || mailbox,
+                    uid = attr['x-real-uid'] || attr.uid;
+                var result = {
+                    attachments: {
+                        heuristic: contentType === 'multipart/mixed',
+                        parts: null
+                    },
+                    bcc: packAddress(env.bcc),
+                    blockedImages: false,
+                    cc: packAddress(env.cc),
+                    cid: util.cid(folder, uid),
+                    contentType: contentType,
+                    date: +moment(env.date),
+                    dateStr: util.getDate(env.date),
+                    dateFullStr: util.getFullDate(env.date),
+                    flags: getFlags(attr.flags),
+                    folder: folder,
+                    from: packAddress(env.from),
+                    id: uid,
+                    messageId: env.messageId,
+                    priority: getPriority(headers),
+                    replyTo: packAddress(env.replyTo),
+                    size: attr.size,
+                    seqno: seqno,
+                    subject: env.subject,
+                    to: packAddress(env.to)
+                };
+                if (attr.struct) result.struct = attr.struct;
+                messages.push(result);
             });
-        })
-        .fail(function (error) {
+        });
+        f.once('error', function (error) {
+            console.error('Error in processEnvelope()', error);
             def.reject(error);
         });
+        f.once('end', function() {
+            def.resolve(messages.reverse());
+        });
 
-    return def.promise();
-}
+        return def.promise();;
+    }
 
-function getMimeParts(parts) {
-    return _(parts)
-        .chain()
-        .filter(function (part) { return part.contentType.indexOf('text') === 0; })
-        .pluck('id')
-        .value();
-}
+    function packAddress(list) {
+        return _(list).map(function (item) {
+            var name = String(item.name || '').replace(/^["']+|["']+$/g, ''),
+                address = String(item.mailbox + '@' + item.host).toLowerCase();
+            return { name: name, address: address };
+        });
+    }
 
-function assembleContent(contentParts, data) {
+    function getContentType(headers) {
+        var value = headers['content-type'];
+        if (!_.isArray(value)) return 'text/plain';
+        return String(value[0] || '').toLowerCase().split(';')[0];
+    }
 
-    var isHTML = data.contentType === 'text/html',
-        content = '',
-        append = false;
+    function getPriority(headers) {
+        var value = headers['x-priority'];
+        if (!_.isArray(value)) return 3;
+        return parseInt(value[0], 10);
+    }
 
-    _(contentParts).each(function (part) {
-        if (part.content) {
-            if (!isHTML) {
-                content += part.content;
-                append = true;
-            } else {
-                if (append || part.contentType === 'text/html') {
-                    if (!append) {
-                        content += part.content;
-                        append = true;
-                    } else {
-                        content = content.replace(/<\/body>/i, part.content + '</body>');
-                    }
-                }
-            }
+    function getFlags(value) {
+        var result = { answered: false, deleted: false, draft: false, forwarded: false, seen: false, spam: false };
+        _(value).each(function (flag) {
+            var key = String(flag).substr(1).toLowerCase();
+            if (flag[0] === '\\' && key in result) result[key] = true;
+            if (flag === 'Junk') result.spam = true;
+        });
+        return result;
+    }
+
+    function getFilename(str) {
+        if (!str) return '';
+        var match = str.match(/filename=(["'])?(.+)\1(;|$)/);
+        return match ? match[2] : '';
+    }
+
+    //
+    // Get parts
+    //
+
+    this.fetchParts = function (folder, uid) {
+
+        function getParts(obj) {
+            if (_.isArray(obj)) return _(obj).map(getParts);
+            if (_.isObject(obj) && obj.partID) return {
+                cid: obj.id || '',
+                charset: (obj.params && obj.params.charset) || '',
+                content: '',
+                contentType: obj.type + '/' + obj.subtype,
+                disposition: (obj.disposition && obj.disposition.type) || 'inline',
+                encoding: obj.encoding,
+                filename: (obj.disposition && obj.disposition.params && obj.disposition.params.filename) || '',
+                id: obj.partID,
+                size: obj.size
+            };
+            return null;
         }
-        delete part.content;
-    });
 
-    data.content = content;
-
-    // loop over all parts to gather attachments
-    var attachments = _(data.parts).filter(function (part) {
-        if (part.content === undefined) return false;
-        if (part.disposition === 'inline') return false;
-        delete part.content;
-        return true;
-    });
-
-    // finally fix attachment flag
-    data.attachments = {
-        heuristic: attachments.length > 0,
-        parts: attachments.length > 0 ? attachments : null
+        return this.selectBox(folder, false).then(function (box) {
+            var f = imap.fetch(uid, { envelope: true, struct: true });
+            return processEnvelope(f, folder).then(function (result) {
+                result = _.isArray(result) ? result[0] : result;
+                var parts = getParts(result.struct || []);
+                result.parts = _(parts).chain().flatten().compact().value();
+                if (content.isHTML(result.parts)) result.contentType = 'text/html';
+                return result;
+            });
+        });
     };
-}
 
-function sanitizeHTML(data) {
+    //
+    // Get message
+    //
 
-    data.content = data.content
-        // decode obfuscated ASCII
-        // addresses this one: https://www.owasp.org/index.php/XSS_Filter_Evasion_Cheat_Sheet#Decimal_HTML_character_references
-        .replace(/&#(\d+);/g, function (all, code) {
-            code = parseInt(code, 10);
-            if (code < 32 || code >= 127) return all;
-            return String.fromCharCode(code);
-        })
-        // remove javascript URLs from CSS
-        .replace(/<style.*?<\s*\/\s*style\s*>/gi, function (all) {
-            return all.replace(/url\(["']?javascript:.*?["']?\)/, 'none');
-        })
-        // remove javascript URLs from inline style
-        .replace(/style=("[^"]+"|'[^']+'|[^\s>]+)/gi, function (all) {
-            return all.replace(/url\(["']?javascript:.*?["']?\)/, 'none');
-        });
+    this.fetchMessage = function (folder, uid) {
 
-    data.content = sanitize(data.content, {
-        allowedTags: [
-            'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'p', 'a', 'ul', 'ol',
-            'nl', 'li', 'b', 'i', 'strong', 'em', 'strike', 'code', 'hr', 'br', 'div',
-            'table', 'thead', 'caption', 'tbody', 'tr', 'th', 'td', 'pre',
-            'body', 'img', 'span', 'font', 'style', 'section', 'article', 'header', 'footer', 'dt', 'dd'
-        ],
-        allowedAttributes: {
-            '*': ['class', 'style', 'align', 'width', 'height', 'role', 'aria-*', 'data-*'],
-            'a': ['href', 'name', 'target', 'title'],
-            'body': ['bgcolor'],
-            'img': ['src', 'alt'],
-            'table': ['bgcolor', 'border', 'cellspacing', 'cellpadding'],
-            'td': ['valign', 'bgcolor']
-        },
-        nonTextTags: ['title', 'script', 'textarea', 'noscript'],
-        selfClosing: ['img', 'br', 'hr'],
-        allowedSchemes: ['http', 'https', 'ftp', 'mailto'],
-        allowedSchemesByTag: {},
-        transformTags: {
-            'a': function (tagName, attribs) {
-                attribs.target = '_blank';
-                return { tagName: 'a', attribs: attribs };
-            }
-        }
-    });
-}
+        var def = $.Deferred();
 
-var messageStyle = '<style> html, body { overflow: hidden; } body { font: normal 13px/normal "Helvetica Neue", Helvetica, Arial, sans-serif; padding: 16px; border: 0; margin: 0; max-width: 700px; } ' +
-    'a { color: #337ab7; } p { margin: 0 0 1em 0; } blockquote { color: #777; border-left: 1px solid #ccc; margin: 0 0 1em 0; padding-left: 23px; } ' +
-    'table { border-collapse: collapse; } pre { white-space: pre-wrap; } .simple-message { word-break: break-word; } ' +
-    '.simple-message img { max-width: 100%; height: auto; border: 0; } .simple-message img.injected { margin: 1em 0 0 0; } ' +
-    'img[src="//:0"] { background-color: rgba(0, 0, 0, 0.1); background-image: repeating-linear-gradient(45deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0) 20px, rgba(255, 255, 255, 0.5) 20px, rgba(255, 255, 255, 0.5) 40px); ' +
-    '</style>';
+        this.fetchParts(folder, uid)
+            .done(function (result) {
 
-function addStructure(data) {
-    if (data.contentType === 'text/plain') data.content = '<body>' + data.content + '</body>';
-    data.content = '<!doctype html><html><head><meta charset="utf-8"></head>' + data.content + '</html>';
-    // mark as simple?
-    if (!/<table/i.test(data.content)) data.content = data.content.replace(/<html/, '<html class="simple-message"');
-    // inject missing <head>
-    if (!/<head>/i.test(data.content)) data.content = data.content.replace(/(<html[^>]*>)/, '$1<head></head>');
-    // inject css
-    data.content = data.content.replace(/<head>/, '<head>' + messageStyle);
-}
+                var hash = content.getPartsHash(result.parts),
+                    contentParts = content.getContentParts(result.parts, folder, uid),
+                    mimeParts = content.getMimeParts(contentParts);
 
-function removeLeadingWhiteSpace(data) {
-    data.content = data.content.replace(/(<body[^>]*>)(\s+|<p>\s*(<br[^>]*>)*\s*<\/p>|<br[^>]*>)+/gi, '$1');
-}
+                var f = imap.fetch(uid, {
+                    bodies: mimeParts,
+                    markSeen: true,
+                    struct: false
+                });
 
-function cleanUpText(str) {
-    return _.escape(str)
-        // detect links
-        .replace(/((?:(?:https?\:\/\/)|www\.).*?)(\s|([.,;!?])(\s|$))/g, '<a href="$1" target="_blank">$1</a>$2')
-        // inject <br> into plain text
-        .replace(/\r?\n/g, '<br>');
-}
+                f.on('message', function (msg) {
+                    msg.on('body', function(stream, info) {
+                        var part = _(contentParts).findWhere({ id: info.which });
+                        if (!part) return;
+                        var buffer = new Buffer('');
+                        stream.on('data', function (chunk) {
+                            buffer = Buffer.concat([buffer, chunk]);
+                        });
+                        stream.once('end', function () {
+                            if (part.encoding === 'base64') {
+                                part.content = mime.decodeBase64(buffer.toString(), part.charset);
+                            } else if (part.encoding === 'quoted-printable') {
+                                part.content = mime.decodeQuotedPrintable(buffer.toString(), part.charset);
+                            } else if (part.charset) {
+                                part.content = iconv.decode(buffer, part.charset);
+                            } else {
+                                part.content = buffer.toString();
+                            }
+                            // clean up
+                            if (part.contentType === 'text/plain') part.content = content.cleanUpText(part.content);
+                        });
+                    });
+                });
+                f.once('error', function (error) {
+                    def.reject(error);
+                });
+                f.once('end', function() {
+                    result.hash = hash;
+                    delete result.struct;
+                    content.assemble(contentParts, result);
+                    content.sanitize(result);
+                    content.addStructure(result);
+                    content.removeLeadingWhiteSpace(result);
+                    def.resolve(result);
+                });
+            })
+            .fail(function (error) {
+                def.reject(error);
+            });
 
-function isHTML(parts) {
-    return !!_(parts).find(function (part) { return part.contentType === 'text/html'; });
-}
+        return def.promise();
+    }
 
-function getContentParts(parts, folder, uid) {
-    var html = isHTML(parts), append = false, result = [];
-    _(parts).each(function (part) {
-        // always attach common image types; ignore disposition but check "cid";
-        // having a cid is an indicator that it's a references inline image anyway
-        if (append && /^image\/(jpeg|png|bmp|gif)$/i.test(part.contentType) && !part.cid) {
-            // append images if not yet inline (indicated by a cid)
-            part.content = '<img src="mail/messages/' + folder + '/' + uid + '.' + part.id + '" class="injected">';
-            result.push(part);
-        }
-        if (part.disposition !== 'inline') return;
-        if (part.contentType === 'text/plain') {
-            if (html && !append) return;
-            append = true;
-            result.push(part);
-        } else if (html && part.contentType === 'text/html') {
-            append = true;
-            result.push(part);
-        }
-    });
-    return result;
-}
+    //
+    // Fetch part/attachment
+    //
 
-// hash to map cid to part ID
-function getPartsHash(parts) {
-    var hash = {};
-    _(parts).each(function (part) {
-        if (part.cid) hash[part.cid.replace(/^<|>$/g, '')] = part.id;
-    });
-    return hash;
-}
+    this.fetchPart = function (folder, uid, part) {
 
-function fixImages(data) {
-    var folder = data.folder, id = data.id, hash = data.hash;
-    data.content = data.content
-        // block external images
-        .replace(/<img(.*?)src=["']?(https?:[^"'\s>]+)["']?/gi, function (all, attr, src) {
-            data.blockedImages = true;
-            return '<img' + attr + 'src="//:0" data-original-src="' + src + '"';
-        })
-        // replace src of inline images
-        .replace(/src=["']?cid:([^"']+)["']?/gi, function (all, cid) {
-            return 'src="mail/messages/' + folder + '/' + id + '.' + hash[cid] + '"';
-        });
-}
-
-//
-// Fetch part/attachment
-//
-
-function fetchPart(folder, uid, part) {
-
-    var def = $.Deferred();
-
-    ready.done(function () {
-        imap.openBox(folder, false, function (err, box) {
-            if (err) return def.reject(err);
+        return this.selectBox(folder).then(function (box) {
+            var def = $.Deferred();
             var f = imap.fetch(uid, { bodies: [part + '.MIME', part], struct: false });
             var content = '', headers = {};
             f.on('message', function (msg) {
@@ -627,180 +463,218 @@ function fetchPart(folder, uid, part) {
                     headers: headers
                 });
             });
+            return def.promise();
         });
-    });
+    };
 
-    return def.promise();
-}
+    //
+    // Fetch mailboxes
+    //
+    this.fetchMailboxes = function () {
 
-function fetchMailboxes() {
+        return ready.then(function () {
+            var def = $.Deferred();
+            imap.getSubscribedBoxes(function (err, result) {
+                if (err) return def.reject(err);
+                result.INBOX.id = 'INBOX';
+                def.resolve(sortMailboxes(result.INBOX, 0));
+            });
+            return def;
+        })
+        .then(function resort(inbox) {
 
-    return ready.then(function () {
-        var def = $.Deferred();
-        imap.getSubscribedBoxes(function (err, result) {
-            if (err) return def.reject(err);
-            result.INBOX.id = 'INBOX';
-            def.resolve(sortMailboxes(result.INBOX, 0));
-        });
-        return def;
-    })
-    .then(function resort(inbox) {
+            var specialUse = [inbox], mailboxes = [], hash = {};
 
-        var specialUse = [inbox], mailboxes = [], hash = {};
-
-        // just look below INBOX - first iteration considers special use flags
-        mailboxes = _(inbox.subfolders).filter(function (item) {
-            if (/^(archive|drafts|sent|spam|trash)$/.test(item.special)) {
-                hash[item.special] = true;
-                specialUse.push(item);
-                if (item.special === 'archive') sortArchive(item);
-                return false;
-            }
-            return true;
-        });
-
-        var flags = {
-            drafts: /^(Drafts)$/i,
-            sent: /^(Sent|Sent\s(items|messages|objects))$/i,
-            spam: /^(Spam|Junk)$/i,
-            trash: /^(Trash|Deleted\s(items|messages|objects))$/i,
-            archive: /^(Archive)$/i
-        };
-
-        // 2nd iteration - consider id
-        mailboxes = _(mailboxes).filter(function (item) {
-            for (var special in flags) {
-                if (!hash[special] && flags[special].test(item.title)) {
-                    item.special = special;
-                    hash[special] = true;
+            // just look below INBOX - first iteration considers special use flags
+            mailboxes = _(inbox.subfolders).filter(function (item) {
+                if (/^(archive|drafts|sent|spam|trash)$/.test(item.special)) {
+                    hash[item.special] = true;
                     specialUse.push(item);
                     if (item.special === 'archive') sortArchive(item);
                     return false;
                 }
-            }
-            return true;
+                return true;
+            });
+
+            var flags = {
+                drafts: /^(Drafts)$/i,
+                sent: /^(Sent|Sent\s(items|messages|objects))$/i,
+                spam: /^(Spam|Junk)$/i,
+                trash: /^(Trash|Deleted\s(items|messages|objects))$/i,
+                archive: /^(Archive)$/i
+            };
+
+            // 2nd iteration - consider id
+            mailboxes = _(mailboxes).filter(function (item) {
+                for (var special in flags) {
+                    if (!hash[special] && flags[special].test(item.title)) {
+                        item.special = special;
+                        hash[special] = true;
+                        specialUse.push(item);
+                        if (item.special === 'archive') sortArchive(item);
+                        return false;
+                    }
+                }
+                return true;
+            });
+
+            inbox.subfolders = [];
+            inbox.title = 'Inbox';
+
+            // sort special-use folders
+            var sorting = { inbox: 0, drafts: 1, sent: 2, spam: 3, trash: 4, archive: 5 };
+            specialUse = _(specialUse).sortBy(function (box) {
+                return sorting[box.special];
+            });
+
+            inheritSpecialUse(specialUse);
+
+            specialUse.push({
+                cid: 'mailboxes',
+                id: 'mailboxes',
+                level: 0,
+                selectable: false,
+                special: '',
+                subfolders: mailboxes,
+                title: 'My folders'
+            });
+
+            var root = {
+                cid: 'root',
+                id: 'root',
+                level: 0,
+                selectable: false,
+                special: '',
+                subfolders: specialUse,
+                title: 'root'
+            };
+
+            fixNestingLevels(0, root);
+
+            return root;
         });
+    }
 
-        inbox.subfolders = [];
-        inbox.title = 'Inbox';
+    function sortMailboxes(box, parent) {
 
-        // sort special-use folders
-        var sorting = { inbox: 0, drafts: 1, sent: 2, spam: 3, trash: 4, archive: 5 };
-        specialUse = _(specialUse).sortBy(function (box) {
-            return sorting[box.special];
-        });
+        var delimiter = box.delimiter || '/',
+            id = parent ? parent + delimiter + box.id : box.id;
 
-        inheritSpecialUse(specialUse);
+        var subfolders = _(box.children)
+            .chain()
+            // turn into an array
+            .map(function (box, _id) {
+                box.id = _id;
+                return sortMailboxes(box, id);
+            })
+            .sortBy(function (box) {
+                return box.id.toLowerCase();
+            })
+            .value();
 
-        specialUse.push({
-            cid: 'mailboxes',
-            id: 'mailboxes',
+        box = {
+            cid: id,
+            id: id,
             level: 0,
-            selectable: false,
-            special: '',
-            subfolders: mailboxes,
-            title: 'My folders'
-        });
-
-        var root = {
-            cid: 'root',
-            id: 'root',
-            level: 0,
-            selectable: false,
-            special: '',
-            subfolders: specialUse,
-            title: 'root'
+            special: getSpecialUse(box),
+            subfolders: subfolders,
+            title: box.id
         };
 
-        fixNestingLevels(0, root);
+        return box;
+    }
 
-        return root;
-    });
-}
+    function getSpecialUse(box) {
+        var attr = box.attribs || [];
+        if (box.id === 'INBOX') return 'inbox';
+        if (attr.indexOf('\\Trash') > -1) return 'trash';
+        if (attr.indexOf('\\Drafts') > -1) return 'drafts';
+        if (attr.indexOf('\\Junk') > -1) return 'spam';
+        return '';
+    }
 
-function sortMailboxes(box, parent) {
+    function fixNestingLevels(level, box) {
+        box.level = level;
+        _(box.subfolders).each(fixNestingLevels.bind(null, level + 1));
+    }
 
-    var delimiter = box.delimiter || '/',
-        id = parent ? parent + delimiter + box.id : box.id;
-
-    var subfolders = _(box.children)
-        .chain()
-        // turn into an array
-        .map(function (box, _id) {
-            box.id = _id;
-            return sortMailboxes(box, id);
-        })
-        .sortBy(function (box) {
-            return box.id.toLowerCase();
-        })
-        .value();
-
-    box = {
-        cid: id,
-        id: id,
-        level: 0,
-        special: getSpecialUse(box),
-        subfolders: subfolders,
-        title: box.id
-    };
-
-    return box;
-}
-
-function getSpecialUse(box) {
-    var attr = box.attribs || [];
-    if (box.id === 'INBOX') return 'inbox';
-    if (attr.indexOf('\\Trash') > -1) return 'trash';
-    if (attr.indexOf('\\Drafts') > -1) return 'drafts';
-    if (attr.indexOf('\\Junk') > -1) return 'spam';
-    return '';
-}
-
-function fixNestingLevels(level, box) {
-    box.level = level;
-    _(box.subfolders).each(fixNestingLevels.bind(null, level + 1));
-}
-
-function sortArchive(box) {
-    if (!box.subfolders.length || !/^\d+$/.test(box.subfolders[0].title)) return;
-    box.subfolders = _(box.subfolders).sortBy(function (box) {
-        return -parseInt(box.title, 10);
-    });
-}
-
-function inheritSpecialUse(list, special) {
-    _(list).each(function (box) {
-        if (box.special === '') box.special = special || '';
-        inheritSpecialUse(box.subfolders, box.special);
-    });
-}
-
-function move(source, messages, target) {
-    return selectBox(source).then(function () {
-        var def = $.Deferred();
-        imap.move(messages, target, function (err) {
-            if (err) def.reject(err.toString()); else def.resolve();
+    function sortArchive(box) {
+        if (!box.subfolders.length || !/^\d+$/.test(box.subfolders[0].title)) return;
+        box.subfolders = _(box.subfolders).sortBy(function (box) {
+            return -parseInt(box.title, 10);
         });
-        return def;
-    });
+    }
+
+    function inheritSpecialUse(list, special) {
+        _(list).each(function (box) {
+            if (box.special === '') box.special = special || '';
+            inheritSpecialUse(box.subfolders, box.special);
+        });
+    }
+
+    //
+    // Move message
+    //
+    this.move = function (source, messages, target) {
+        return this.selectBox(source).then(function () {
+            var def = $.Deferred();
+            imap.move(messages, target, function (err) {
+                if (err) def.reject(err.toString()); else def.resolve();
+            });
+            return def;
+        });
+    };
+}
+
+// simple hash to store connection per session id
+var connections = {};
+
+// get an existing or new connection based on session data
+function getConnection(req, res) {
+
+    var def = $.Deferred(), id, connection;
+
+    if (!req.session || !req.session.id) return fail();
+
+    id = req.session.id;
+    connection = connections[id];
+
+    if (connection && connection.state() === 'authenticated') {
+        def.resolve(connection);
+    } else if (req.session && req.session.user && req.session.password) {
+        connection = new Connection(req.session.user, req.session.password)
+        connection.promise()
+            .done(function () {
+                connections[id] = connection;
+                def.resolve(connection);
+            })
+            .fail(fail);
+    } else {
+        fail();
+    }
+
+    function fail() {
+        res.status(401).type('json').send('{}');
+        def.reject();
+    }
+
+    return def.promise();
+}
+
+// store connection
+function storeConnection(id, connection) {
+    connections[id] = connection;
+}
+
+// close and drop a connection
+function dropConnection(id) {
+    if (connections[id]) connections[id].end();
+    delete connections[id];
 }
 
 module.exports = {
-
-    connect: connect,
-    selectBox: selectBox,
-    fetchMailboxes: fetchMailboxes,
-    fetchEnvelope: fetchEnvelope,
-    searchUnseen: searchUnseen,
-    searchEnvelope: searchEnvelope,
-    fetchMessage: fetchMessage,
-    fetchPart: fetchPart,
-    getFlags: getFlags,
-    move: move,
-    ready: function () { return ready; },
-    connection: function () { return imap; },
-    state: function () { return imap ? imap.state : 'disconnected'; },
-    reuse: function (connection) {
-        imap = connection;
-    }
+    Connection: Connection,
+    getConnection: getConnection,
+    storeConnection: storeConnection,
+    dropConnection: dropConnection
 };
