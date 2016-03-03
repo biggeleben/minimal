@@ -183,12 +183,12 @@ var tmplEnvelope = _.template(
     '<% _(list).each(function (data, index) { %>' +
     '<li role="option" <%= (index === 0 ? "tabindex=0" : "") %> data-cid="<%- data.cid %>" data-seqno="<%- data.seqno %>" class="<%= util.getFlagClasses(data) %>">' +
     '<div class="row">' +
-    '  <time class="date gray"><%- util.getDate(data.date) %></time>' +
-    '  <div class="who ellipsis"><%- util.getWho(data.from) %></div>' +
+    '<time class="date gray"><%- util.getDate(data.date) %></time>' +
+    '<div class="who ellipsis"><%- util.getWho(data.from) %></div>' +
     '</div>' +
     '<div class="row">' +
-    '  <% if (data.attachments.heuristic) { %><i class="fa fa-paperclip has-attachment"></i><% } %>' +
-    '  <div class="subject ellipsis gray"><%- data.subject || "No subject" %></div>' +
+    '<% if (data.attachments.heuristic) { %><i class="fa fa-paperclip has-attachment"></i><% } %>' +
+    '<div class="subject ellipsis gray"><%- data.subject || "No subject" %></div>' +
     '</div>' +
     '</li>\n' +
     '<% }); %>'
@@ -199,14 +199,14 @@ var tmplError = _.template('<li class="error"><%- error %></li>');
 app.get(/^\/mail\/messages\/(.+)\/$/, function (req, res) {
 
     imap.getConnection(req, res).done(function (connection) {
-        connection.fetchEnvelope(req.params[0])
-            .done(function (list) {
+        connection.fetchEnvelope(req.params[0], req.query.offset, req.query.limit)
+            .done(function (result) {
                 if (req.query.json) {
-                    res.type('json').send(JSON.stringify(list, null, 4));
-                } else if (!list || list.length === 0) {
-                    res.send('<li class="hint">No messages</li>');
+                    res.type('json').send(JSON.stringify(result, null, 4));
                 } else {
-                    res.send(tmplEnvelope({ list: list, util: util }));
+                    var count = (result && result.messages.length) || 0;
+                    var html = count ? tmplEnvelope({ list: result.messages, util: util }) : '<li class="hint">No messages</li>';
+                    res.send({ html: html, count: count, total: result.total });
                 }
             })
             .fail(function (error) {
@@ -222,14 +222,14 @@ app.get(/^\/mail\/messages\/(.+)\/$/, function (req, res) {
 app.search(/^\/mail\/messages\/(.+)\/$/, function (req, res) {
 
     imap.getConnection(req, res).done(function (connection) {
-        connection.searchEnvelope(req.params[0], req.query.query)
-            .done(function (list) {
+        connection.searchEnvelope(req.params[0], req.query.query, req.query.offset, req.query.limit)
+            .done(function (result) {
                 if (req.query.json) {
-                    res.type('json').send(JSON.stringify(list, null, 4));
-                } else if (!list || list.length === 0) {
-                    res.send('<li class="hint">No matches</li>');
+                    res.type('json').send(JSON.stringify(result, null, 4));
                 } else {
-                    res.send(tmplEnvelope({ list: list, util: util }));
+                    var count = (result && result.messages.length) || 0;
+                    var html = count ? tmplEnvelope({ list: result.messages, util: util }) : '<li class="hint">No matches</li>';
+                    res.send({ html: html, count: count, total: result.total });
                 }
             })
             .fail(function (error) {

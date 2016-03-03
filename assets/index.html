@@ -69,7 +69,7 @@ if (theme !== undefined) setTheme(theme);
 <!-- Application screen -->
 
 <div class="abs app" style="display: none">
-    <nav class="abs toolbar">
+    <nav class="abs topbar">
         <h1>Minimal UI</h1>
         <div class="search">
             <!-- type="search" cannot be styled in Safari -->
@@ -82,7 +82,14 @@ if (theme !== undefined) setTheme(theme);
     </nav>
     <div class="abs screen">
         <ul class="column folder-view" role="tree"></ul>
-        <ul class="column list-view" role="listbox"></ul>
+        <div class="column list-view-container">
+            <ul class="abs list-view" role="listbox"></ul>
+            <div class="abs list-view-toolbar">
+                <a href="#" role="button" data-cmd="prev-page"><i class="fa fa-chevron-left"></i></a>
+                <a href="#" role="button" data-cmd="next-page"><i class="fa fa-chevron-right"></i></a>
+                <span class="info"></span>
+            </div>
+        </div>
         <div class="column detail-view" role="complementary"></div>
     </div>
 </div>

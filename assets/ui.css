@@ -262,16 +262,21 @@ a:hover { text-decoration: underline; }
 
 /* List view */
 
-.list-view {
+.list-view-container {
     flex: 0;
     flex-basis: 280px;
-    overflow-y: auto;
-    list-style-type: none;
     position: relative;
     margin: 0 16px 0 0;
-    padding: 0;
     background-color: rgba(0, 0, 0, 0.15);
+}
+
+.list-view {
+    list-style-type: none;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0;
     outline: 0;
+    bottom: 40px;
 }
 
 .list-view li {
@@ -347,6 +352,39 @@ a:hover { text-decoration: underline; }
 .list-view .has-attachment:before {
     font-size: 14px;
     margin: 0 0 0 8px;
+}
+
+/* List view toolbar */
+
+.list-view-toolbar {
+    top: auto;
+    height: 40px;
+    line-height: 40px;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.70);
+    background-color: rgba(0, 0, 0, 0.10);
+}
+
+.list-view-toolbar a {
+    color: rgba(255, 255, 255, 0.70);
+    display: inline-block;
+}
+
+.list-view-toolbar a:hover, .list-view-toolbar a:focus {
+    color: white;
+    background-color: rgba(0, 0, 0, 0.20);
+}
+
+.list-view-toolbar a .fa {
+    width: 40px;
+    text-align: center;
+}
+
+.list-view-toolbar .info {
+    font-size: 13px;
+    font-weight: 300;
+    display: inline-block;
+    margin: 0 8px;
 }
 
 /* Flags */
@@ -513,25 +551,13 @@ a:hover { text-decoration: underline; }
     background-color: rgba(0, 0, 0, 0.90);
 }
 
-#preview .scrollpane {
+#preview .viewport {
     position: absolute;
-    padding-top: 40px;
-    overflow-y: auto;
+    top: 40px;
     z-index: 0;
-}
-
-#preview .wrapper {
-    display: flex;
-    padding: 0 16px;
-    justify-content: center;
-    align-items: center;
-    min-height: 100%;
-    outline: 0;
-}
-
-#preview img {
-    max-width: 100%;
-    border: 0;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center center;
 }
 
 #preview .caption {
@@ -558,9 +584,9 @@ a:hover { text-decoration: underline; }
     cursor: pointer;
 }
 
-/* Toolbar */
+/* Top bar */
 
-.toolbar {
+.topbar {
     height: 40px;
     line-height: 40px;
     bottom: auto;
@@ -568,7 +594,7 @@ a:hover { text-decoration: underline; }
     padding: 0 16px;
 }
 
-.toolbar h1 {
+.topbar h1 {
     font-size: 20px;
     line-height: 36px;
     font-weight: 100;
@@ -607,14 +633,14 @@ a:hover { text-decoration: underline; }
     color: rgba(255, 255, 255, 0.70);
 }
 
-.toolbar .right {
+.topbar .right {
     position: absolute;
     top: 0;
     right: 16px;
     height: 40px;
 }
 
-.toolbar button {
+.topbar button {
     color: rgba(255, 255, 255, 0.70);
     background-color: transparent;
     border: 0;
@@ -626,7 +652,7 @@ a:hover { text-decoration: underline; }
     vertical-align: top;
 }
 
-.toolbar button:hover, .toolbar button:focus {
+.topbar button:hover, .topbar button:focus {
     color: #fff;
     background-color: rgba(0, 0, 0, 0.20);
 }
@@ -704,7 +730,7 @@ html.theme_7 {
     background-image: linear-gradient(230deg, #231A2F, #4F5061, #1C1925);
 }
 
-html.theme_7 .toolbar h1 { color: #f7830b; }
+html.theme_7 .topbar h1 { color: #f7830b; }
 
 /* Font Awesome (to get the paperclip icon) */
 
@@ -728,3 +754,5 @@ html.theme_7 .toolbar h1 { color: #f7830b; }
 .fa-paperclip:before { content: '\f0c6'; }
 .fa-plus:before { content: '\f196'; }
 .fa-close:before { content: '\f00d'; }
+.fa-chevron-left:before { content: '\f053'; }
+.fa-chevron-right:before { content: '\f054'; }

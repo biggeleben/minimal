@@ -99,7 +99,10 @@ $(function () {
 
     // Main stuff
 
+    var offset = 0, total = 0, LIMIT = 50;
+
     function setFolder(folder) {
+        offset = 0;
         currentFolder = folder;
         location.hash = '#' + escape(folder);
     }
@@ -129,25 +132,32 @@ $(function () {
         clearSearchField();
         var busy = setTimeout(function () { listView.addClass('busy'); }, 500);
         var render = lastOneWins(renderMessages);
-        return http.GET('mail/messages/' + folder + '/')
+        return http.GET('mail/messages/' + folder + '/?' + $.param({ offset: offset, limit: LIMIT }))
             .always(function () {
                 clearTimeout(busy);
                 listView.removeClass('busy');
             })
-            .done(function (data) {
-                render(data);
-            });
+            .done(render);
+    }
+
+    function num(n) {
+        return String(n).replace(/(\d)(?=(\d{3})+$)/g, '$1,');
     }
 
     function searchMessages(query) {
         clearMailbox();
         listView.addClass('busy');
-        var url = 'mail/messages/' + currentFolder + '/?' + $.param({ query: query });
+        var url = 'mail/messages/' + currentFolder + '/?' + $.param({ query: query, offset: offset, limit: LIMIT });
         return http.SEARCH(url).done(lastOneWins(renderMessages));
     }
 
-    function renderMessages(html) {
-        listView.removeClass('busy').scrollTop(0).get(0).innerHTML = html;
+    function renderMessages(result) {
+        total = result.total;
+        var from = offset + 1, to = offset + result.count;
+        $('.list-view-toolbar .info').text(
+            total > 0 ? num(from) + '\u2013' + num(to) + ' of ' + num(total) : ''
+        );
+        listView.removeClass('busy').scrollTop(0).get(0).innerHTML = result.html;
         clearDetailView();
     }
 
@@ -155,7 +165,6 @@ $(function () {
 
     function fetchMessage(cid) {
         if (current === cid) return;
-        current = cid;
         if (messageCache[cid]) {
             toggleSeenIfUnseen(cid);
             return renderMessage(messageCache[cid]);
@@ -184,6 +193,7 @@ $(function () {
 
     function renderMessage(data) {
         clearDetailView();
+        current = data.cid;
         detailView[0].innerHTML = data.content.header;
         var iframe = $('.detail-view iframe'),
             doc = iframe.prop('contentDocument');
@@ -338,9 +348,7 @@ $(function () {
             $el.empty().append(
                     $('<div class="caption">').text((index + 1) + ' / ' + images.length),
                     $('<div class="fa fa-close">'),
-                    $('<div class="scrollpane abs">').append(
-                        $('<div class="wrapper">').append($('<img>', { src: images[index] }))
-                    )
+                    $('<div class="viewport abs">').css('background-image', 'url("' + images[index] + '")')
                 )
                 .show().focus();
         },
@@ -502,6 +510,16 @@ $(function () {
         cmd('unblock-images');
     });
 
+    $('.list-view-toolbar').on('click', '[data-cmd="prev-page"]', function (e) {
+        e.preventDefault();
+        cmd('prev-page', e.altKey ? 1000 : 50);
+    });
+
+    $('.list-view-toolbar').on('click', '[data-cmd="next-page"]', function (e) {
+        e.preventDefault();
+        cmd('next-page', e.altKey ? 1000 : 50);
+    });
+
     function tbd() {
         yell('Not yet implemented');
     }
@@ -552,6 +570,19 @@ $(function () {
 
         'cmd:preview': function (e, images, index) {
             $('#preview').data({ images: images, index: index }).trigger('show');
+        },
+
+        'cmd:prev-page': function (e, limit) {
+            offset = Math.max(0, offset - (limit || LIMIT));
+            var query = $.trim($('.search-field').val());
+            if (query) searchMessages(query); else fetchMailbox();
+        },
+
+        'cmd:next-page': function (e, limit) {
+            var max = Math.floor((total - 1) / LIMIT) * LIMIT;
+            offset = Math.min(max, offset + limit || LIMIT);
+            var query = $.trim($('.search-field').val());
+            if (query) searchMessages(query); else fetchMailbox();
         }
     });
 

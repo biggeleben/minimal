@@ -127,26 +127,37 @@ function Connection(user, password) {
     // Fetch envelope data
     //
 
-    this.fetchEnvelope = function (folder) {
+    this.fetchEnvelope = function (folder, offset, limit) {
+
+        offset = offset || 0;
+        limit = limit || 50;
 
         return this.selectBox(folder, true).then(function (box) {
+
             var total = box.messages.total,
-                start = Math.max(1, total - 50),
-                range = start + ':' + total;
-            if (total === 0) return $.when([]);
+                start = Math.max(1, total - limit - offset + 1),
+                range = start + ':' + (total - offset);
+
+            if (total === 0 || offset >= total) return $.when({ messages: [], total: total });
+
             var f = imap.seq.fetch(range, {
                 bodies: 'HEADER.FIELDS (X-PRIORITY CONTENT-TYPE)',
                 envelope: true,
                 size: true,
                 struct: false
             });
-            return processEnvelope(f, folder);
+
+            return processEnvelope(f, folder).then(function (list) {
+                return { messages: list, total: total };
+            });
         });
     };
 
-    this.searchEnvelope = function (folder, query) {
+    this.searchEnvelope = function (folder, query, offset, limit) {
 
         query = String(query || '').trim();
+        offset = offset || 0;
+        limit = limit || 50;
 
         // over virtual/all?
         if (query.indexOf(':all') === 0) {
@@ -154,12 +165,19 @@ function Connection(user, password) {
             query = query.substr(5);
         }
 
-        if (query === '') return $.when([]);
+        if (query === '') return $.when({ messages: [], total: 0 });
 
         return this.selectBox(folder).then(function (box) {
             return search(parseQuery(query)).then(function (results) {
-                if (results.length === 0) return $.when([]);
-                results = _(results).last(100);
+
+                var total = results.length,
+                    start = Math.max(1, total - limit - offset),
+                    stop = total - offset + 1;
+
+                if (total === 0 || offset >= total) return $.when({ messages: [], total: total });
+
+                results = results.slice(start, stop);
+
                 var f = imap.fetch(results, {
                     bodies: 'HEADER.FIELDS (X-PRIORITY CONTENT-TYPE)',
                     extensions: folder === 'virtual/all' && ['X-MAILBOX', 'X-REAL-UID'],
@@ -167,7 +185,10 @@ function Connection(user, password) {
                     size: true,
                     struct: false
                 });
-                return processEnvelope(f, folder);
+
+                return processEnvelope(f, folder).then(function (list) {
+                    return { messages: list, total: total };
+                });
             });
         });
     };
@@ -624,6 +645,19 @@ function Connection(user, password) {
             return def;
         });
     };
+
+    //
+    // Expunge mailbox
+    //
+    this.expunge = function (folder) {
+        return this.selectBox(folder).then(function () {
+            var def = $.Deferred();
+            imap.closeBox(true, function (err) {
+                if (err) def.reject(err.toString()); else def.resolve();
+            });
+            return def;
+        });
+    };
 }
 
 // simple hash to store connection per session id
@@ -668,7 +702,12 @@ function storeConnection(id, connection) {
 
 // close and drop a connection
 function dropConnection(id) {
-    if (connections[id]) connections[id].end();
+    var connection = connections[id];
+    if (connection) {
+        connection.expunge('INBOX').always(function () {
+            connection.end();
+        });
+    }
     delete connections[id];
 }
 
