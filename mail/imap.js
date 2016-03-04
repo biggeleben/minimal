@@ -668,7 +668,10 @@ function getConnection(req, res) {
 
     var def = $.Deferred(), id, connection;
 
-    if (!req.session || !req.session.id) return fail();
+    if (!req.session || !req.session.id) {
+        fail();
+        return def.promise();
+    }
 
     id = req.session.id;
     connection = connections[id];

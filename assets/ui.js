@@ -13,7 +13,16 @@ $(function () {
 
     'use strict';
 
-    var currentFolder = unescape(location.hash.substr(1) || 'INBOX'),
+    // app state
+    var state = {
+        folder: unescape(location.hash.substr(1) || 'INBOX'),
+        listMode: 'mailbox',
+        message: null,
+        offset: 0,
+        total: 0
+    };
+
+    var LIMIT = 50,
         messageCache = {},
         slice = Array.prototype.slice,
         tick,
@@ -25,6 +34,7 @@ $(function () {
     // Login handling
 
     function showLogin() {
+        $('body').busy(false);
         $('.login').show();
         $('form').on('submit', onSubmit);
         $('#input-user').focus();
@@ -37,7 +47,11 @@ $(function () {
             return e.preventDefault();
         }
         // use timeout; otherwise nothing gets submitted
-        setTimeout(function () { $('form :input').prop('disabled', true); }, 0);
+        setTimeout(function () {
+            $('form :input').prop('disabled', true);
+            $('.login').hide();
+            $('body').busy(true);
+        }, 0);
     }
 
     function showFeedback(message) {
@@ -51,14 +65,18 @@ $(function () {
         showFeedback(data.message);
         $('form :input').prop('disabled', false);
         $('#input-password').val('');
+        $('.login').show();
+        $('body').busy(false);
         $('#input-user').focus().select();
     };
 
     window.login_callback = function () {
+        $('body').busy(false);
         $('#input-user, #input-password').val('');
         startApplication();
     };
 
+    $('body').busy();
     $.get('/session').done(startApplication).fail(showLogin);
 
     // http
@@ -99,18 +117,21 @@ $(function () {
 
     // Main stuff
 
-    var offset = 0, total = 0, LIMIT = 50;
-
     function setFolder(folder) {
-        offset = 0;
-        currentFolder = folder;
+        if (folder !== state.folder) state.offset = 0;
         location.hash = '#' + escape(folder);
+    }
+
+    function setListMode(mode) {
+        if (mode === state.listMode) return;
+        state.offset = 0;
+        state.listMode = mode;
     }
 
     function loadFolders() {
         return http.GET('mail/mailboxes/').done(function (html) {
-            folderView[0].innerHTML = html;
-            folderView.find('[data-cid="' + $.escape(currentFolder) + '"]').mousedown();
+            folderView.get(0).innerHTML = html;
+            folderView.find('[data-cid="' + $.escape(state.folder) + '"]').mousedown();
             loadFolderCount();
         });
     }
@@ -128,14 +149,14 @@ $(function () {
     }
 
     function fetchMailbox(folder) {
-        if (folder === undefined) folder = currentFolder; else setFolder(folder);
+        if (folder === undefined) folder = state.folder; else setFolder(folder);
+        setListMode('mailbox');
         clearSearchField();
-        var busy = setTimeout(function () { listView.addClass('busy'); }, 500);
+        listView.busy(true, 500);
         var render = lastOneWins(renderMessages);
-        return http.GET('mail/messages/' + folder + '/?' + $.param({ offset: offset, limit: LIMIT }))
+        return http.GET('mail/messages/' + folder + '/?' + $.param({ offset: state.offset, limit: LIMIT }))
             .always(function () {
-                clearTimeout(busy);
-                listView.removeClass('busy');
+                listView.busy(false);
             })
             .done(render);
     }
@@ -146,40 +167,39 @@ $(function () {
 
     function searchMessages(query) {
         clearMailbox();
-        listView.addClass('busy');
-        var url = 'mail/messages/' + currentFolder + '/?' + $.param({ query: query, offset: offset, limit: LIMIT });
+        setListMode('search');
+        listView.busy(true);
+        var url = 'mail/messages/' + state.folder + '/?' + $.param({ query: query, offset: state.offset, limit: LIMIT });
         return http.SEARCH(url).done(lastOneWins(renderMessages));
     }
 
     function renderMessages(result) {
-        total = result.total;
-        var from = offset + 1, to = offset + result.count;
+        state.total = result.total;
+        var from = state.offset + 1, to = state.offset + result.count;
         $('.list-view-toolbar .info').text(
-            total > 0 ? num(from) + '\u2013' + num(to) + ' of ' + num(total) : ''
+            state.total > 0 ? num(from) + '\u2013' + num(to) + ' of ' + num(state.total) : ''
         );
-        listView.removeClass('busy').scrollTop(0).get(0).innerHTML = result.html;
+        listView.busy(false).scrollTop(0).get(0).innerHTML = result.html;
         clearDetailView();
     }
 
-    var pending = null, current = null;
+    var pending = null;
 
     function fetchMessage(cid) {
-        if (current === cid) return;
+        if (cid === state.message) return;
         if (messageCache[cid]) {
             toggleSeenIfUnseen(cid);
             return renderMessage(messageCache[cid]);
         }
-        var fade = setTimeout(function () { detailView.addClass('fade'); }, 300);
-        var busy = setTimeout(function () { detailView.addClass('busy'); }, 600);
+        detailView.busy(true, 300, 'fade');
+        detailView.busy(true, 600);
         var render = lastOneWins(renderMessage);
         if (pending) pending.abort();
         pending = http.GET('mail/messages/' + cid);
         pending
             .always(function () {
                 pending = null;
-                clearTimeout(fade);
-                clearTimeout(busy);
-                detailView.removeClass('busy fade');
+                detailView.busy(false).busy(false, null, 'fade');
             })
             .done(function cont(data) {
                 messageCache[cid] = data;
@@ -191,19 +211,23 @@ $(function () {
             });
     }
 
-    function renderMessage(data) {
-        clearDetailView();
-        current = data.cid;
-        detailView[0].innerHTML = data.content.header;
-        var iframe = $('.detail-view iframe'),
-            doc = iframe.prop('contentDocument');
+    function write(iframe, content) {
+        var doc = iframe.prop('contentDocument');
         doc.open();
-        doc.write(data.content.message);
+        doc.write(content);
         doc.close();
-        // look for doubleclick
-        doc.addEventListener('dblclick', zoomImage, false);
         // test xss
         iframe.prop('contentWindow').xss = xss;
+        return doc;
+    }
+
+    function renderMessage(data) {
+        clearDetailView();
+        state.message = data.cid;
+        detailView.get(0).innerHTML = data.content.header;
+        var doc = write(detailView.find('iframe'), data.content.message);
+        // look for doubleclick
+        doc.addEventListener('dblclick', zoomImage, false);
         // resize
         resize();
         tick = setInterval(resize, 300);
@@ -242,14 +266,14 @@ $(function () {
     }
 
     function clearMailbox() {
-        $('.list-view').prop('innerHTML', '');
+        $('.list-view').get(0).innerHTML = '';
         clearDetailView();
     }
 
     function clearDetailView() {
-        current = null;
+        state.message = null;
         clearInterval(tick);
-        $('.detail-view').scrollTop(0).prop('innerHTML', '');
+        detailView.scrollTop(0).get(0).innerHTML = '';
     }
 
     function clearSearchField() {
@@ -298,7 +322,12 @@ $(function () {
     // reset list view when empty
     $(document).on('input', '.search-field', function (e) {
         var query = $.trim($(e.currentTarget).val());
+        $('.search-close').toggle(query !== '');
         if (query === '') fetchMailbox(); else if (query.length === 1) clearMailbox();
+    });
+
+    $(document).on('click', '.search-close', function (e) {
+        $('.search-field').val('').trigger('input').focus();
     });
 
     // Cursor navigation
@@ -322,20 +351,8 @@ $(function () {
         $('#contextmenu').css({ top: e.pageY - 12, left: e.pageX + 12 }).show();
     });
 
-    $(document).on('click', '#contextmenu a', function (e) {
-        e.preventDefault();
-        var item = $(e.currentTarget), name = item.attr('data-cmd'), selection = listView.selection.get();
-        if (name && selection.length) cmd(name, selection);
-    });
-
     $(document).on('click', function () {
         $('#contextmenu, #alert').hide();
-    });
-
-    // inline actions
-    $(document).on('click', '.inline-actions a', function (e) {
-        var item = $(e.currentTarget), name = item.attr('data-cmd'), cid = item.closest('.inline-actions').attr('data-cid');
-        if (name && cid) cmd(name, cid);
     });
 
     //
@@ -495,34 +512,36 @@ $(function () {
     // no native context-menu
     $(document).on('contextmenu', false);
 
-    // Theme switch
-    $(document).on('click', '.theme-switch', function () {
-        cmd('change-theme');
-    });
-
-    // Logout
-    $(document).on('click', '.logout', function () {
-        cmd('logout');
-    });
-
-    // unblock images
-    $(document).on('click', '.unblock-images', function () {
-        cmd('unblock-images');
-    });
-
-    $('.list-view-toolbar').on('click', '[data-cmd="prev-page"]', function (e) {
+    // forward commands
+    $(document).on('click', '[data-cmd]', function (e) {
         e.preventDefault();
-        cmd('prev-page', e.altKey ? 1000 : 50);
+        var node = $(e.currentTarget), name = node.attr('data-cmd');
+        switch (name) {
+            case 'compose':
+            case 'change-theme':
+            case 'logout':
+            case 'unblock-images':
+            case 'discard':
+                cmd(name);
+                break;
+            case 'prev-page':
+            case 'next-page':
+                cmd(name, e.altKey ? 1000 : 50);
+                break;
+            case 'reply':
+            case 'reply-all':
+            case 'forward':
+                var cid = node.closest('.inline-actions').attr('data-cid') || listView.selection.get()[0];
+                console.log('Soooo', cid);
+                if (cid) cmd(name, cid);
+                break;
+            case 'send':
+                yell('Not implemented yet');
+                break;
+        }
     });
 
-    $('.list-view-toolbar').on('click', '[data-cmd="next-page"]', function (e) {
-        e.preventDefault();
-        cmd('next-page', e.altKey ? 1000 : 50);
-    });
-
-    function tbd() {
-        yell('Not yet implemented');
-    }
+    // Commands
 
     $(document).on({
 
@@ -548,7 +567,8 @@ $(function () {
 
         'cmd:delete': function (e, cid) {
             var node = listView.find('[data-cid="' + $.escape(cid) + '"]');
-            node.next().focus();
+            clearDetailView();
+            node.next().trigger('mousedown');
             node.remove();
             http.DELETE('mail/messages/' + cid).fail(yell);
         },
@@ -564,34 +584,116 @@ $(function () {
             });
         },
 
-        'cmd:reply': tbd,
-        'cmd:reply-all': tbd,
-        'cmd:forward': tbd,
+        'cmd:compose': function () {
+            compose('compose');
+        },
+
+        'cmd:reply': function (e, cid) {
+            compose('reply', cid);
+        },
+
+        'cmd:reply-all': function (e, cid) {
+            compose('reply-all', cid);
+        },
+
+        'cmd:forward': function (e, cid) {
+            compose('forward', cid);
+        },
+
+        'cmd:discard': function () {
+            discard();
+        },
 
         'cmd:preview': function (e, images, index) {
             $('#preview').data({ images: images, index: index }).trigger('show');
         },
 
         'cmd:prev-page': function (e, limit) {
-            offset = Math.max(0, offset - (limit || LIMIT));
+            state.offset = Math.max(0, state.offset - (limit || LIMIT));
             var query = $.trim($('.search-field').val());
             if (query) searchMessages(query); else fetchMailbox();
         },
 
         'cmd:next-page': function (e, limit) {
-            var max = Math.floor((total - 1) / LIMIT) * LIMIT;
-            offset = Math.min(max, offset + limit || LIMIT);
+            var max = Math.floor((state.total - 1) / LIMIT) * LIMIT;
+            state.offset = Math.min(max, state.offset + limit || LIMIT);
             var query = $.trim($('.search-field').val());
             if (query) searchMessages(query); else fetchMailbox();
         }
     });
 
+    // Compose
+
+    function compose(mode, cid) {
+
+        var isCompose = mode === 'compose',
+            isReply = mode === 'reply',
+            isReplyAll = mode === 'reply-all',
+            isForward = mode === 'forward';
+
+        function prefix() {
+            if (isReply || isReplyAll) return 'Re: ';
+            if (isForward) return 'Fwd: ';
+            return '';
+        }
+
+        function flatten(list) {
+            return list
+                .map(function (item) {
+                    return item.name ? '"' + item.name + '" <' + item.address + '>' : item.address;
+                })
+                .join('; ')
+        }
+
+        function show(data) {
+            var content = '<!doctype html><html><head><style> body { font: normal 13px/normal "Helvetica Neue", Helvetica, Arial, sans-serif; margin: 0; padding: 16px; } </style></head><body></body></html>';
+            if (data) {
+                // TO & CC
+                if (isReply || isReplyAll) $('.compose [name="to"]').val(flatten(data.from));
+                if (isReplyAll) $('.compose [name="cc"]').val(flatten([].concat(data.to, data.cc)));
+                // subject
+                $('.compose [name="subject"]').val(prefix() + data.subject);
+                // content
+                content = window.content = data.content.message
+                    .replace(/^([\s\S]+<body[^>]*>)/i, '$1<p><br></p><blockquote type="cite">')
+                    .replace(/(<\s*\/\s*body[\s\S]+)$/, '</blockquote>$1');
+            }
+            var doc = write($('.compose .editor'), content);
+            $(doc).find('html').css('overflow', 'auto');
+            $(doc).find('body').attr('contenteditable', 'true');
+            $('.compose').show();
+            if (isReply || isReplyAll) $(doc).find('body').focus();
+            else $('.compose [name="to"]').focus();
+        }
+
+        $('.compose').find(':input').val('');
+
+        $('.mail').addClass('background');
+        if (!isCompose) http.GET('mail/messages/' + cid).done(show); else show();
+    }
+
+    function discard() {
+        $('.compose').hide();
+        $('.mail').removeClass('background');
+    }
+
+    $('.compose').on('keydown', 'input', function (e) {
+        if (e.which === 27) return discard();
+        if (e.which !== 13) return;
+        e.preventDefault();
+        var name = $(e.currentTarget).attr('name');
+        if (name === 'to') $('.compose [name="cc"]').focus();
+        else if (name === 'cc') $('.compose [name="subject"]').focus();
+        else if (name === 'subject') $('.compose .editor').focus();
+    });
+
     function startApplication() {
 
+        $('body').busy(false);
         $('form').remove();
-        $('.app').show();
+        $('.mail').show();
         loadFolders();
-        fetchMailbox(currentFolder);
+        fetchMailbox();
 
         // // Socket support
         // var socket = window.socket = io.connect('//' + location.host);
@@ -624,4 +726,18 @@ $.escape = function (str) {
     // escape !"#$%&'()*+,./:;<=>?@[\]^`{|}~
     // see http://api.jquery.com/category/selectors/
     return String(str).replace(/([!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~])/g, '\\$1');
+};
+
+$.fn.busy = function (state, delay, className) {
+
+    delay = delay || 300;
+    className = className || 'busy';
+
+    return this.each(function () {
+        clearTimeout($(this).attr('data-timeout-' + className));
+        if (state === false) return $(this).removeClass(className).removeAttr('data-timeout-' + className);
+        $(this).attr('data-timeout-' + className, setTimeout(function () {
+            $(this).addClass(className);
+        }.bind(this), delay));
+    });
 };

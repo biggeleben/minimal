@@ -188,6 +188,7 @@ var tmplEnvelope = _.template(
     '</div>' +
     '<div class="row">' +
     '<% if (data.attachments.heuristic) { %><i class="fa fa-paperclip has-attachment"></i><% } %>' +
+    '<% if (data.priority < 3) { %><span class="high-priority">Important</span><% } %>' +
     '<div class="subject ellipsis gray"><%- data.subject || "No subject" %></div>' +
     '</div>' +
     '</li>\n' +

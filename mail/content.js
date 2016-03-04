@@ -14,7 +14,7 @@
 var sanitize = require('sanitize-html'),
     _ = require('underscore');
 
-var messageStyle = '<style> html, body { overflow: hidden; } body { font: normal 13px/normal "Helvetica Neue", Helvetica, Arial, sans-serif; padding: 16px; border: 0; margin: 0; max-width: 700px; } ' +
+var messageStyle = '<style> html { overflow-y: hidden; overflow-x: auto; } body { overflow: hidden; font: normal 13px/normal "Helvetica Neue", Helvetica, Arial, sans-serif; padding: 16px; border: 0; margin: 0; max-width: 700px; } ' +
     'a { color: #337ab7; } p { margin: 0 0 1em 0; } blockquote { color: #777; border-left: 1px solid #ccc; margin: 0 0 1em 0; padding-left: 23px; } ' +
     'table { border-collapse: collapse; } pre { white-space: pre-wrap; } .simple-message { word-break: break-word; } ' +
     '.simple-message img { max-width: 100%; height: auto; border: 0; } .simple-message img.injected { margin: 1em 0 0 0; } ' +

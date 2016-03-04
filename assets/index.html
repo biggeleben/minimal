@@ -68,38 +68,67 @@ if (theme !== undefined) setTheme(theme);
 
 <!-- Application screen -->
 
-<div class="abs app" style="display: none">
+<div class="abs mail" style="display: none">
     <nav class="abs topbar">
         <h1>Minimal UI</h1>
         <div class="search">
             <!-- type="search" cannot be styled in Safari -->
             <input type="text" class="search-field" placeholder="Search ...">
+            <a href="#" class="search-close" role="button"><i class="fa fa-times-circle"></i></a>
         </div>
         <div class="right">
-            <button class="theme-switch">Color</button>
-            <button class="logout">Logout</button>
+            <button class="theme-switch" data-cmd="change-theme">Color</button>
+            <button class="logout" data-cmd="logout">Sign out</button>
         </div>
     </nav>
     <div class="abs screen">
-        <ul class="column folder-view" role="tree"></ul>
-        <div class="column list-view-container">
+        <div class="folder-view-container">
+            <div class="folder-view-toolbar">
+                <button data-cmd="compose">Compose message</button>
+            </div>
+            <ul class="abs folder-view" role="tree"></ul>
+        </div>
+        <div class="list-view-container">
             <ul class="abs list-view" role="listbox"></ul>
             <div class="abs list-view-toolbar">
-                <a href="#" role="button" data-cmd="prev-page"><i class="fa fa-chevron-left"></i></a>
-                <a href="#" role="button" data-cmd="next-page"><i class="fa fa-chevron-right"></i></a>
+                <a href="#" role="button" data-cmd="prev-page"><i class="fa fa-backward"></i></a><!--
+             --><a href="#" role="button" data-cmd="next-page"><i class="fa fa-forward"></i></a>
                 <span class="info"></span>
             </div>
         </div>
-        <div class="column detail-view" role="complementary"></div>
+        <div class="detail-view" role="complementary"></div>
     </div>
 </div>
+
+<!-- Popup -->
+
+<div class="abs compose backdrop" style="display: none">
+    <div class="popup">
+        <h2 class="title">Compose</h2>
+        <a href="#" data-cmd="discard"><i class="fa fa-close"></i></a>
+        <div class="row"><textarea name="to" placeholder="To" autocorrect="off" spellcheck="false"></textarea></div>
+        <div class="row"><textarea name="cc" placeholder="Copy" autocorrect="off" spellcheck="false"></textarea></div>
+        <div class="row">
+            <input type="text" name="subject" placeholder="Subject" autocorrect="off" spellcheck="true">
+        </div>
+        <div class="stretch">
+            <iframe src="//:0" class="editor" contenteditable="true" autocorrect="off" spellcheck="true"></iframe>
+        </div>
+        <div class="toolbar">
+            <button data-cmd="send">Send</button><!--
+         --><button data-cmd="discard">Discard</button>
+        </div>
+    </div>
+</div>
+
+<!-- Overlays -->
 
 <div id="alert" style="display: none" role="alert" aria-live="assertive"></div>
 
 <div id="contextmenu" style="display: none">
     <a href="#" data-cmd="reply" data-requires="one">Reply <i class="key">R</i></a>
     <a href="#" data-cmd="reply-all" data-requires="one">Reply to all <i class="key">Shift-R</i></a>
-    <a href="#" data-cmd="forward" data-requires="some">Forward <i class="key">F</i></a>
+    <a href="#" data-cmd="forward" data-requires="one">Forward <i class="key">F</i></a>
     <div class="divider"></div>
     <a href="#" data-cmd="toggle-seen" data-requires="some">Mark as unseen/seen <i class="key">U</i></a>
     <div class="divider"></div>
