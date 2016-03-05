@@ -836,7 +836,7 @@ function Tokenfield($el, options) {
 
     function split(str) {
         // split string by comma and semi-colon but skip such delimiters in quotes
-        return String(str || '').trim().match(/('[^']*'|"[^"]*"|[^"',;]+)+/g);
+        return String(str || '').trim().match(/('[^']*'|"[^"]*"|[^"',;]+)+/g) || [];
     }
 
     function autosize() {

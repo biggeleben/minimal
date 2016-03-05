@@ -860,6 +860,7 @@ a:hover { text-decoration: underline; }
 
 .tokenfield input {
     color: white;
+    width: 40px;
     min-width: 40px;
     background: transparent;
     border: 0;
