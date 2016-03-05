@@ -532,7 +532,6 @@ $(function () {
             case 'reply-all':
             case 'forward':
                 var cid = node.closest('.inline-actions').attr('data-cid') || listView.selection.get()[0];
-                console.log('Soooo', cid);
                 if (cid) cmd(name, cid);
                 break;
             case 'send':
@@ -649,25 +648,31 @@ $(function () {
             var content = '<!doctype html><html><head><style> body { font: normal 13px/normal "Helvetica Neue", Helvetica, Arial, sans-serif; margin: 0; padding: 16px; } </style></head><body></body></html>';
             if (data) {
                 // TO & CC
-                if (isReply || isReplyAll) $('.compose [name="to"]').val(flatten(data.from));
-                if (isReplyAll) $('.compose [name="cc"]').val(flatten([].concat(data.to, data.cc)));
+                if (isReply || isReplyAll) $('.compose [data-name="to"]').trigger('reset', flatten(data.from));
+                if (isReplyAll) $('.compose [data-name="cc"]').trigger('reset', flatten([].concat(data.to, data.cc)));
                 // subject
                 $('.compose [name="subject"]').val(prefix() + data.subject);
                 // content
                 content = window.content = data.content.message
                     .replace(/^([\s\S]+<body[^>]*>)/i, '$1<p><br></p><blockquote type="cite">')
                     .replace(/(<\s*\/\s*body[\s\S]+)$/, '</blockquote>$1');
+            } else {
+                $('.compose [data-name="to"]').trigger('reset', '');
+                $('.compose [data-name="cc"]').trigger('reset', '');
+                $('.compose [name="subject"]').val('');
             }
             var doc = write($('.compose .editor'), content);
             $(doc).find('html').css('overflow', 'auto');
             $(doc).find('body').attr('contenteditable', 'true');
             $('.compose').show();
             if (isReply || isReplyAll) $(doc).find('body').focus();
-            else $('.compose [name="to"]').focus();
+            else $('.compose [data-name="to"] input').focus();
         }
 
-        $('.compose').find(':input').val('');
+        $('[data-name="to"]').tokenfield({ placeholder: 'To' });
+        $('[data-name="cc"]').tokenfield({ placeholder: 'Copy' });
 
+        $('.compose').find(':input').val('');
         $('.mail').addClass('background');
         if (!isCompose) http.GET('mail/messages/' + cid).done(show); else show();
     }
@@ -677,14 +682,16 @@ $(function () {
         $('.mail').removeClass('background');
     }
 
-    $('.compose').on('keydown', 'input', function (e) {
+    $('.compose').on('keydown', ':input', function (e) {
         if (e.which === 27) return discard();
         if (e.which !== 13) return;
         e.preventDefault();
-        var name = $(e.currentTarget).attr('name');
-        if (name === 'to') $('.compose [name="cc"]').focus();
+    });
+
+    $('.compose').on('next', '.tokenfield', function (e) {
+        var name = $(e.currentTarget).attr('data-name');
+        if (name === 'to') $('.compose [data-name="cc"] input').focus();
         else if (name === 'cc') $('.compose [name="subject"]').focus();
-        else if (name === 'subject') $('.compose .editor').focus();
     });
 
     function startApplication() {
@@ -739,5 +746,111 @@ $.fn.busy = function (state, delay, className) {
         $(this).attr('data-timeout-' + className, setTimeout(function () {
             $(this).addClass(className);
         }.bind(this), delay));
+    });
+};
+
+// Tokenfield
+
+function Tokenfield($el, options) {
+
+    // add css class and hidden input field
+    $el.addClass('tokenfield').append(
+        $('<span class="autosize">'),
+        $('<input type="text" class="field" autocorrect="off" spellcheck="false">')
+        .attr('placeholder', options.placeholder)
+    );
+
+    // capture focus on click on container
+    $el.on('click', function (e) {
+        if (e.target === $el[0]) $el.find('input').focus();
+    });
+
+    $el.on('keydown', 'input', function (e) {
+        var $input = $(this), value = $.trim($input.val()), inbetween;
+        switch (e.which) {
+            // backspace / cursor left
+            case 8:
+            case 37:
+                if (value === '') $input.prev('.token').focus();
+                break;
+            // enter
+            case 13:
+                $input.val('');
+                // autosize now to avoid flicker
+                autosize();
+                if (value) {
+                    // add token and restore focus after edit
+                    inbetween = !$input.is(':last-child');
+                    $el.trigger('add', [value, inbetween]);
+                    $input.appendTo($el);
+                    if (!inbetween) $input.focus();
+                } else {
+                    $el.trigger('next');
+                }
+                break;
+        }
+        // adjust size
+        setTimeout(autosize, 0);
+    });
+
+    $el.on('keydown', '.token', function (e) {
+        var $token = $(e.currentTarget);
+        switch (e.which) {
+            // backspace
+            case 8: e.preventDefault(); $token.next().focus(); $token.remove(); break;
+            // cursor left
+            case 37: $token.prev('.token').focus(); break;
+            // cursor right
+            case 39: $token.next().focus(); break;
+            // enter
+            case 13: $token.trigger('edit'); break;
+        }
+    });
+
+    $el.on('dblclick', '.token', function (e) {
+        $(e.currentTarget).trigger('edit');
+    });
+
+    $el.on('edit', '.token', function (e) {
+        var $token = $(e.currentTarget);
+        $el.find('input').val($token.attr('data-value')).replaceAll($token).focus().select();
+        autosize();
+    });
+
+    $el.on('add', function (e, str, focus) {
+        var field = $el.find('input');
+        split(str).forEach(function (value) {
+            value = value.trim();
+            var match = $.trim(value).match(/^("|')(.*?)(\1)\s+<([^>]+)>$/),
+                text = match ? match[2] : value,
+                $token = $('<div class="token" tabindex="-1">');
+            field.before($token.attr('data-value', value).text(text));
+            if (focus) $token.focus();
+        });
+    });
+
+    $el.on('reset', function (e, str) {
+        $el.find('.token').remove();
+        $el.trigger('add', str);
+    });
+
+    function split(str) {
+        // split string by comma and semi-colon but skip such delimiters in quotes
+        return String(str || '').trim().match(/('[^']*'|"[^"]*"|[^"',;]+)+/g);
+    }
+
+    function autosize() {
+        var $input = $el.find('input'), $auto = $el.find('.autosize');
+        $auto.text($input.val());
+        $input.width($auto.width() + 16);
+    }
+}
+
+$.fn.tokenfield = function (options) {
+    options = options || {};
+    return this.each(function () {
+        var $el = $(this);
+        if ($el.data('tokenfield')) return;
+        $el.data('tokenfield', new Tokenfield($el, options));
     });
 };

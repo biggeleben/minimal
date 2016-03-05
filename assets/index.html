@@ -106,8 +106,8 @@ if (theme !== undefined) setTheme(theme);
     <div class="popup">
         <h2 class="title">Compose</h2>
         <a href="#" data-cmd="discard"><i class="fa fa-close"></i></a>
-        <div class="row"><textarea name="to" placeholder="To" autocorrect="off" spellcheck="false"></textarea></div>
-        <div class="row"><textarea name="cc" placeholder="Copy" autocorrect="off" spellcheck="false"></textarea></div>
+        <div class="row"><div data-name="to"></div></div>
+        <div class="row"><div data-name="cc"></div></div>
         <div class="row">
             <input type="text" name="subject" placeholder="Subject" autocorrect="off" spellcheck="true">
         </div>
