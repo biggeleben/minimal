@@ -27,9 +27,6 @@ body {
 a { color: #337ab7; text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-::selection { background: #337ab7; }
-::-moz-selection { background: #337ab7; }
-
 .abs {
     position: absolute;
     top: 0; right: 0; bottom: 0; left: 0;
@@ -197,8 +194,10 @@ a:hover { text-decoration: underline; }
 }
 
 .folder-view-toolbar button {
-    background-color: rgba(255, 255, 255, 0.20);
-    border: 1px solid rgba(0, 0, 0, 0.30);
+    width: 100%;
+    background-color: rgba(0, 0, 0, 0.20);
+    border: 0;
+    /*border: 1px solid rgba(0, 0, 0, 0.30);*/
     color: #FFF;
     line-height: 30px;
     font-size: 12px;
@@ -209,7 +208,7 @@ a:hover { text-decoration: underline; }
 }
 
 .folder-view-toolbar button:hover, .folder-view-toolbar button:focus {
-    background-color: rgba(255, 255, 255, 0.30);
+    background-color: rgba(0, 0, 0, 0.50);
 }
 
 .folder-view {
@@ -387,6 +386,7 @@ a:hover { text-decoration: underline; }
 .list-view .has-attachment {
     float: right;
     display: inline-block;
+    margin-top: 1px;
 }
 
 .list-view .has-attachment:before {
@@ -397,7 +397,7 @@ a:hover { text-decoration: underline; }
 .list-view .high-priority {
     float: right;
     display: inline-block;
-    margin: 0 0 0 8px;
+    margin: 1px 0 1px 8px;
     text-transform: uppercase;
     color: white;
     background-color: #e00;
@@ -844,15 +844,15 @@ a:hover { text-decoration: underline; }
 /* Tokenfield */
 
 .tokenfield {
-    max-height: 82px;
-    padding: 8px 16px;
+    max-height: 90px;
+    padding: 8px 16px 4px 16px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.20);
     overflow-y: auto;
 }
 
 .tokenfield input, .tokenfield .token, .tokenfield .autosize {
     display: inline-block;
-    margin: 1px 2px 1px 0;
+    margin: 0 2px 2px 0;
     font-size: 13px;
     line-height: 16px;
     padding: 3px 8px;

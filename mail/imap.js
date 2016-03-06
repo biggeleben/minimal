@@ -171,8 +171,8 @@ function Connection(user, password) {
             return search(parseQuery(query)).then(function (results) {
 
                 var total = results.length,
-                    start = Math.max(1, total - limit - offset),
-                    stop = total - offset + 1;
+                    start = Math.max(0, total - limit - offset),
+                    stop = total - offset;
 
                 if (total === 0 || offset >= total) return $.when({ messages: [], total: total });
 

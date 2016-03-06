@@ -323,8 +323,17 @@ $(function () {
     $(document).on('input', '.search-field', function (e) {
         var query = $.trim($(e.currentTarget).val());
         $('.search-close').toggle(query !== '');
-        if (query === '') fetchMailbox(); else if (query.length === 1) clearMailbox();
+        if (query === '') fetchMailbox(); else if (query.length === 1) showSearchSyntax();
     });
+
+    function showSearchSyntax() {
+        clearMailbox();
+        listView.html(
+            '<li class="hint">Hint on syntax:<br><br><b>subject:</b>"some words"<br><b>from:</b>someone<br><b>to</b>:"someone else"<br>' +
+            '<b>year:</b>2016<br><b>:all</b> (all mailboxes)<br><b>:unseen</b> (unseen messages only)<br><br>' +
+            'If no prefix is given, the string is searched in sender and subject.'
+        );
+    }
 
     $(document).on('click', '.search-close', function (e) {
         $('.search-field').val('').trigger('input').focus();
