@@ -16,6 +16,7 @@
     "jquery-deferred": "^0.3.0",
     "mimelib": "^0.2.19",
     "moment": "^2.11.2",
+    "nodemailer": "^2.3.0",
     "sanitize-html": "^1.11.3",
     "socket.io": "^1.4.5",
     "underscore": "^1.8.3"

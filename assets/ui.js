@@ -576,7 +576,7 @@ $(function () {
                 if (cid) cmd(name, cid);
                 break;
             case 'send':
-                yell('Not implemented yet');
+                send();
                 break;
         }
     });
@@ -745,11 +745,6 @@ $(function () {
         else http.GET('mail/messages/' + arg).done(prepare);
     }
 
-    function discard() {
-        $('.compose').hide();
-        $('.mail').removeClass('background');
-    }
-
     $('.compose').on('keydown', ':input', function (e) {
         if (e.which === 27) return discard();
         if (e.which !== 13) return;
@@ -761,6 +756,42 @@ $(function () {
         if (name === 'to') $('.compose [data-name="cc"] input').focus();
         else if (name === 'cc') $('.compose [name="subject"]').focus();
     });
+
+    function close() {
+        $('.compose').hide();
+        $('.mail').removeClass('background');
+    }
+
+    function discard() {
+        close();
+    }
+
+    // ------------------------------------------------------------------------------------------
+
+    //
+    // Send message
+    //
+
+    function send() {
+
+        var compose = $('.compose'),
+            doc = compose.find('.editor').prop('contentDocument'),
+            style = '<style> body { font: normal 13px/normal "Helvetica Neue", Helvetica, Arial, sans-serif; padding: 16px; border: 0; margin: 0; } a { color: #337ab7; } p { margin: 0 0 1em 0; } </style>';
+
+        var data = {
+            from: state.session.address,
+            to: compose.find('[data-name="to"]').tokenfield('get'),
+            cc: compose.find('[data-name="cc"]').tokenfield('get'),
+            subject: compose.find('[name="subject"]').val(),
+            content: '<!doctype html><html><head>' + style + '</head><body>' + doc.body.outerHTML + '</body></html>'
+        };
+
+        http.POST('mail/messages/', data).done(function () {
+            yell('Message has been sent');
+        });
+
+        close();
+    }
 
     // ------------------------------------------------------------------------------------------
 
@@ -928,13 +959,24 @@ function Tokenfield($el, options) {
         $auto.text($input.val());
         $input.width($auto.width() + 16);
     }
+
+    this.$el = $el;
 }
+
+Tokenfield.prototype.get = function () {
+    return this.$el.find('.token').map(function () { return $(this).attr('data-value'); }).toArray();
+};
 
 $.fn.tokenfield = function (options) {
     options = options || {};
-    return this.each(function () {
-        var $el = $(this);
-        if ($el.data('tokenfield')) return;
+    var retValue;
+    var elements = this.each(function () {
+        var $el = $(this), instance = $el.data('tokenfield');
+        if (instance) {
+            if (options === 'get') retValue = instance.get();
+            return;
+        }
         $el.data('tokenfield', new Tokenfield($el, options));
     });
+    return retValue === undefined ? elements : retValue;
 };

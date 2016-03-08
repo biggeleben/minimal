@@ -14,7 +14,8 @@ var imap = require('./mail/imap'),
     config = require('./config'),
     $ = require('jquery-deferred'),
     _ = require('underscore'),
-    gd = require('easy-gd');
+    gd = require('easy-gd'),
+    nodemailer = require('nodemailer');
 
 //
 // Express stuff
@@ -432,6 +433,32 @@ app.delete(/^\/mail\/messages\/(.+)\/(\d+)$/, function (req, res) {
             .fail(function (e) {
                 res.status(500).send({ message: e });
             });
+    });
+});
+
+//
+// Send new message
+//
+
+app.post(/^\/mail\/messages\/$/, function (req, res) {
+
+    // we don't need the connection but the session
+    imap.getConnection(req, res).done(function () {
+
+        var transporter = nodemailer.createTransport('smtps://' + req.session.user + ':' + req.session.password + '@' + config.smtp);
+
+        var options = {
+            from: req.body.from,
+            to: req.body.to || [],
+            cc: req.body.cc || [],
+            subject: req.body.subject,
+            html: req.body.content
+        };
+
+        // send mail with defined transport object
+        transporter.sendMail(options, function (error, info) {
+            if (error) res.status(500).send({ error: error.toString() }); else res.send({});
+        });
     });
 });
 
