@@ -399,8 +399,8 @@ a:hover { text-decoration: underline; }
     display: inline-block;
     margin: 1px 0 1px 8px;
     text-transform: uppercase;
-    color: white;
-    background-color: #e00;
+    color: #c00;
+    background-color: rgba(255, 0, 0, 0.10);
     border-radius: 2px;
     font-size: 10px;
     font-weight: bold;
@@ -550,6 +550,10 @@ a:hover { text-decoration: underline; }
     margin: 0;
 }
 
+.detail-view dl.addresses a {
+    color: inherit;
+}
+
 .detail-view dl.attachments {
     margin-top: 16px;
 }
@@ -616,9 +620,17 @@ a:hover { text-decoration: underline; }
     position: absolute;
     top: 40px;
     z-index: 0;
-    background-size: contain;
-    background-repeat: no-repeat;
-    background-position: center center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#preview .viewport img {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
 }
 
 #preview .caption {

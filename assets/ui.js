@@ -31,7 +31,11 @@ $(function () {
         listView = $('.list-view'),
         detailView = $('.detail-view');
 
+    // ------------------------------------------------------------------------------------------
+
+    //
     // Login handling
+    //
 
     function showLogin() {
         $('body').busy(false);
@@ -79,7 +83,11 @@ $(function () {
     $('body').busy();
     $.get('/session').done(startApplication).fail(showLogin);
 
-    // http
+    // ------------------------------------------------------------------------------------------
+
+    //
+    // http layer
+    //
 
     var http = (function () {
 
@@ -113,9 +121,11 @@ $(function () {
         }, 0);
     }
 
-    window.yell = yell;
+    // ------------------------------------------------------------------------------------------
 
+    //
     // Main stuff
+    //
 
     function setFolder(folder) {
         if (folder !== state.folder) state.offset = 0;
@@ -301,7 +311,11 @@ $(function () {
         detailView.prepend($('<h1 style="color: white; display: inline-block">').text('XSS.' + xss.count + '.' + n + '\u00a0 '));
     };
 
+    // ------------------------------------------------------------------------------------------
+
+    //
     // Search
+    //
 
     $(document).on('keydown', '.search-field', function (e) {
         if (e.which === 40) {
@@ -339,7 +353,11 @@ $(function () {
         $('.search-field').val('').trigger('input').focus();
     });
 
+    // ------------------------------------------------------------------------------------------
+
+    //
     // Cursor navigation
+    //
 
     $(document).on('keydown', '.folder-view .folder', function (e) {
         var left = e.which === 37, right = e.which === 39;
@@ -364,6 +382,8 @@ $(function () {
         $('#contextmenu, #alert').hide();
     });
 
+    // ------------------------------------------------------------------------------------------
+
     //
     // Peview
     //
@@ -374,7 +394,7 @@ $(function () {
             $el.empty().append(
                     $('<div class="caption">').text((index + 1) + ' / ' + images.length),
                     $('<div class="fa fa-close">'),
-                    $('<div class="viewport abs">').css('background-image', 'url("' + images[index] + '")')
+                    $('<div class="viewport abs">').append($('<img>', { src: images[index] }))
                 )
                 .show().focus();
         },
@@ -391,6 +411,8 @@ $(function () {
             if ($(e.target).is('.fa-close')) $(this).trigger('hide');
         }
     });
+
+    // ------------------------------------------------------------------------------------------
 
     //
     // Selection handling list view
@@ -521,7 +543,12 @@ $(function () {
     // no native context-menu
     $(document).on('contextmenu', false);
 
+    // ------------------------------------------------------------------------------------------
+
+    //
     // forward commands
+    //
+
     $(document).on('click', '[data-cmd]', function (e) {
         e.preventDefault();
         var node = $(e.currentTarget), name = node.attr('data-cmd');
@@ -532,6 +559,10 @@ $(function () {
             case 'unblock-images':
             case 'discard':
                 cmd(name);
+                break;
+            case 'compose-to':
+                // todo: add generic solution
+                compose('compose', { to: [{ name: node.attr('data-name'), address: node.attr('title') }] });
                 break;
             case 'prev-page':
             case 'next-page':
@@ -549,7 +580,11 @@ $(function () {
         }
     });
 
+    // ------------------------------------------------------------------------------------------
+
+    //
     // Commands
+    //
 
     $(document).on({
 
@@ -630,9 +665,13 @@ $(function () {
         }
     });
 
-    // Compose
+    // ------------------------------------------------------------------------------------------
 
-    function compose(mode, cid) {
+    //
+    // Compose
+    // arg: cid or data
+
+    function compose(mode, arg) {
 
         var isCompose = mode === 'compose',
             isReply = mode === 'reply',
@@ -655,20 +694,19 @@ $(function () {
 
         function show(data) {
             var content = '<!doctype html><html><head><style> body { font: normal 13px/normal "Helvetica Neue", Helvetica, Arial, sans-serif; margin: 0; padding: 16px; } </style></head><body></body></html>';
+            // use given data
             if (data) {
                 // TO & CC
-                if (isReply || isReplyAll) $('.compose [data-name="to"]').trigger('reset', flatten(data.from));
-                if (isReplyAll) $('.compose [data-name="cc"]').trigger('reset', flatten([].concat(data.to, data.cc)));
+                if (data.to) $('.compose [data-name="to"]').trigger('reset', flatten(data.to));
+                if (data.cc) $('.compose [data-name="cc"]').trigger('reset', flatten(data.cc));
                 // subject
-                $('.compose [name="subject"]').val(prefix() + data.subject);
+                if (data.subject) $('.compose [name="subject"]').val(prefix() + data.subject);
                 // content
-                content = window.content = data.content.message
-                    .replace(/^([\s\S]+<body[^>]*>)/i, '$1<p><br></p><blockquote type="cite">')
-                    .replace(/(<\s*\/\s*body[\s\S]+)$/, '</blockquote>$1');
-            } else {
-                $('.compose [data-name="to"]').trigger('reset', '');
-                $('.compose [data-name="cc"]').trigger('reset', '');
-                $('.compose [name="subject"]').val('');
+                if (data.content) {
+                    content = window.content = data.content.message
+                        .replace(/^([\s\S]+<body[^>]*>)/i, '$1<p><br></p><blockquote type="cite">')
+                        .replace(/(<\s*\/\s*body[\s\S]+)$/, '</blockquote>$1');
+                }
             }
             var doc = write($('.compose .editor'), content);
             $(doc).find('html').css('overflow', 'auto');
@@ -678,12 +716,29 @@ $(function () {
             else $('.compose [data-name="to"] input').focus();
         }
 
+        function prepare(data) {
+            // work on copy
+            data = JSON.parse(JSON.stringify(data));
+            data.cc = [].concat(data.to, data.cc);
+            data.to = data.from;
+            data.from = [];
+            show(data);
+        }
+
         $('[data-name="to"]').tokenfield({ placeholder: 'To' });
         $('[data-name="cc"]').tokenfield({ placeholder: 'Copy' });
 
-        $('.compose').find(':input').val('');
+        // reset first
+        $('.compose [data-name="to"]').trigger('reset', '');
+        $('.compose [data-name="cc"]').trigger('reset', '');
+        $('.compose [name="subject"]').val('');
+
+        $('.compose').show();
         $('.mail').addClass('background');
-        if (!isCompose) http.GET('mail/messages/' + cid).done(show); else show();
+
+        if (isCompose) show(arg);
+        else if (messageCache[arg]) prepare(messageCache[arg]);
+        else http.GET('mail/messages/' + arg).done(prepare);
     }
 
     function discard() {
@@ -703,6 +758,10 @@ $(function () {
         else if (name === 'cc') $('.compose [name="subject"]').focus();
     });
 
+    // ------------------------------------------------------------------------------------------
+
+    // Start session
+
     function startApplication() {
 
         $('body').busy(false);
@@ -710,20 +769,24 @@ $(function () {
         $('.mail').show();
         loadFolders();
         fetchMailbox();
+        initializeSocket();
+    }
 
-        // // Socket support
-        // var socket = window.socket = io.connect('//' + location.host);
-        // socket.on('update', function (data) {
-        //     console.log('socket:update', data)
-        //     if (!data.flags) return;
-        //     listView.children('[data-seqno="' + data.seqno + '"]')
-        //         .toggleClass('unseen', !data.flags.seen)
-        //         .toggleClass('deleted', data.flags.deleted);
-        // });
-        // socket.on('uidvalidity', function (data) {
-        //     console.log('socket:uidvalidity', data)
-        // });
-        // // ignore first event right after page reload
+    // Socket support
+
+    function initializeSocket() {
+        var socket = window.socket = io.connect('//' + location.host);
+        socket.on('update', function (data) {
+            console.log('socket:update', data)
+            if (!data.flags) return;
+            listView.children('[data-seqno="' + data.seqno + '"]')
+                .toggleClass('unseen', !data.flags.seen)
+                .toggleClass('deleted', data.flags.deleted);
+        });
+        socket.on('uidvalidity', function (data) {
+            console.log('socket:uidvalidity', data)
+        });
+        // new mail events needs some fixes in imap lib first
         // var first = true;
         // socket.on('mail', function (data) {
         //     if (first) { first = false; return; }
@@ -734,8 +797,10 @@ $(function () {
     }
 });
 
+// ------------------------------------------------------------------------------------------
+
 //
-// Util
+// jQuery Util
 //
 
 $.escape = function (str) {
@@ -758,7 +823,11 @@ $.fn.busy = function (state, delay, className) {
     });
 };
 
+// ------------------------------------------------------------------------------------------
+
+//
 // Tokenfield
+//
 
 function Tokenfield($el, options) {
 

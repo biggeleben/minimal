@@ -31,13 +31,15 @@ app.use(compress());
 app.use('/assets', express.static('assets', { maxAge: 86400000 }));
 app.use(cookieParser());
 
-app.use(session({
+var sessionMiddleware = session({
     name: 'minimal.sid',
     store: new RedisStore(),
     secret: 'super_secure',
     resave: true,
     saveUninitialized: true
-}));
+});
+
+app.use(sessionMiddleware);
 app.use(body.urlencoded({ extended: true }));
 app.use(body.json());
 
@@ -254,7 +256,7 @@ var tmplMessage = _.template(
     '<% if (data[id].length) { %>' +
     '<dl class="addresses">' +
     '<dt><%- util.labels[id] %></dt>' +
-    '<dd><%- util.getAddresses(data[id]) %>' +
+    '<dd><%= util.getAddresses(data[id]) %>' +
     '</dl>' +
     '<% } %>' +
     '<% }); %>' +
@@ -294,7 +296,9 @@ tmplMessage.util = {
     getAddresses: function (list) {
         return list
             .map(function (item) {
-                return String(item.name || item.address).replace(/\s/g, '\u00A0');
+                return '<a href="#" data-cmd="compose-to" data-name="' + _.escape(item.name) + '" title="' + _.escape(item.address) + '">' +
+                    _.escape(String(item.name || item.address).replace(/\s/g, '\u00A0')
+                ) + '</a>';
             })
             .join(',\u00a0\u00a0 ');
     },
@@ -426,17 +430,26 @@ var io = app.listen(1337);
 // Socket stuff
 //
 
-// io = require('socket.io').listen(io);
-// io.sockets.on('connection', function (socket) {
-//     imap.ready().done(function (connection) {
-//         connection.on('update', function (seqno, info) {
-//             socket.emit('update', { flags: !!info.flags && imap.getFlags(info.flags), modseq: info.modseq, seqno: seqno });
-//         });
-//         connection.on('mail', function (numNewMsgs) {
-//             socket.emit('mail', { numNewMsgs: numNewMsgs });
-//         });
-//         connection.on('uidvalidity', function (uidvalidity) {
-//             socket.emit('uidvalidity', { uidvalidity: uidvalidity });
-//         });
-//     });
-// });
+io = require('socket.io').listen(io);
+
+// wire with express session
+io.use(function(socket, next) {
+    sessionMiddleware(socket.request, socket.request.res, next);
+});
+
+io.sockets.on('connection', function (socket) {
+
+    var id = socket.request.sessionID, session = socket.request.session;
+    imap.getConnectionBySession(id, session).done(function (connection) {
+        var imap = connection.raw();
+        imap.on('update', function (seqno, info) {
+            socket.emit('update', { flags: !!info.flags && connection.getFlags(info.flags), modseq: info.modseq, seqno: seqno });
+        });
+        imap.on('uidvalidity', function (uidvalidity) {
+            socket.emit('uidvalidity', { uidvalidity: uidvalidity });
+        });
+        imap.on('mail', function (numNewMsgs) {
+            socket.emit('mail', { numNewMsgs: numNewMsgs });
+        });
+    });
+});

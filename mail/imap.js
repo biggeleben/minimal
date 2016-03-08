@@ -658,12 +658,14 @@ function Connection(user, password) {
             return def;
         });
     };
+
+    this.getFlags = getFlags;
 }
 
 // simple hash to store connection per session id
 var connections = {};
 
-// get an existing or new connection based on session data
+// get an existing or new connection based on request
 function getConnection(req, res) {
 
     var def = $.Deferred(), id, connection;
@@ -698,6 +700,28 @@ function getConnection(req, res) {
     return def.promise();
 }
 
+// get an existing or new connection based on session
+function getConnectionBySession(id, session) {
+
+    var def = $.Deferred(), connection = connections[id];
+
+    if (connection && connection.state() === 'authenticated') {
+        def.resolve(connection);
+    } else if (session.user && session.password) {
+        connection = new Connection(session.user, session.password)
+        connection.promise()
+            .done(function () {
+                connections[id] = connection;
+                def.resolve(connection);
+            })
+            .fail(def.reject);
+    } else {
+        def.reject();
+    }
+
+    return def.promise();
+}
+
 // store connection
 function storeConnection(id, connection) {
     connections[id] = connection;
@@ -717,6 +741,7 @@ function dropConnection(id) {
 module.exports = {
     Connection: Connection,
     getConnection: getConnection,
+    getConnectionBySession: getConnectionBySession,
     storeConnection: storeConnection,
     dropConnection: dropConnection
 };
