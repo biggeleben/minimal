@@ -14,11 +14,12 @@ $(function () {
     'use strict';
 
     // app state
-    var state = {
+    var state = window.state = {
         folder: unescape(location.hash.substr(1) || 'INBOX'),
         listMode: 'mailbox',
         message: null,
         offset: 0,
+        session: {},
         total: 0
     };
 
@@ -74,10 +75,10 @@ $(function () {
         $('#input-user').focus().select();
     };
 
-    window.login_callback = function () {
+    window.login_callback = function (data) {
         $('body').busy(false);
         $('#input-user, #input-password').val('');
-        startApplication();
+        startApplication(data);
     };
 
     $('body').busy();
@@ -686,6 +687,9 @@ $(function () {
 
         function flatten(list) {
             return list
+                .filter(function (item) {
+                    return item.address !== state.session.address;
+                })
                 .map(function (item) {
                     return item.name ? '"' + item.name + '" <' + item.address + '>' : item.address;
                 })
@@ -762,7 +766,9 @@ $(function () {
 
     // Start session
 
-    function startApplication() {
+    function startApplication(data) {
+
+        state.session = data;
 
         $('body').busy(false);
         $('form').remove();
@@ -777,20 +783,20 @@ $(function () {
     function initializeSocket() {
         var socket = window.socket = io.connect('//' + location.host);
         socket.on('update', function (data) {
-            console.log('socket:update', data)
+            console.info('socket:update', data)
             if (!data.flags) return;
             listView.children('[data-seqno="' + data.seqno + '"]')
                 .toggleClass('unseen', !data.flags.seen)
                 .toggleClass('deleted', data.flags.deleted);
         });
         socket.on('uidvalidity', function (data) {
-            console.log('socket:uidvalidity', data)
+            console.info('socket:uidvalidity', data)
         });
         // new mail events needs some fixes in imap lib first
         // var first = true;
         // socket.on('mail', function (data) {
         //     if (first) { first = false; return; }
-        //     console.log('socket:mail', data);
+        //     console.info('socket:mail', data);
         //     fetchMailbox();
         //     // new Audio('assets/beep.mp3').play();
         // });

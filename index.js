@@ -11,6 +11,7 @@
 
 var imap = require('./mail/imap'),
     util = require('./mail/util'),
+    config = require('./config'),
     $ = require('jquery-deferred'),
     _ = require('underscore'),
     gd = require('easy-gd');
@@ -58,7 +59,7 @@ app.get('/', function (req, res) {
 app.get('/session', function (req, res) {
 
     imap.getConnection(req, res).done(function success() {
-        res.type('json').send(JSON.stringify({ id: req.session.id }, null, 4));
+        res.type('json').send(JSON.stringify(getSessionData(req), null, 4));
     });
 });
 
@@ -79,7 +80,7 @@ app.post('/session', function (req, res) {
         req.session.user = req.body.user;
         req.session.password = req.body.password;
         imap.storeConnection(req.session.id, connection);
-        send('login_callback', {});
+        send('login_callback', getSessionData(req));
     }
 
     function error() {
@@ -103,6 +104,18 @@ app.delete('/session', function (req, res) {
     }
     res.type('json').send('{}');
 });
+
+function getSessionData(req) {
+    var id = req.session.id,
+        user = lc(req.session.user),
+        domain = lc(config.domain),
+        address = user.indexOf('@') === -1 ? user + '@' + domain : user;
+    return { id: id, user: user, address: address };
+}
+
+function lc(s) {
+    return String(s || '').toLowerCase();
+}
 
 //
 // All folders
