@@ -452,7 +452,8 @@ app.post(/^\/mail\/messages\/$/, function (req, res) {
             to: req.body.to || [],
             cc: req.body.cc || [],
             subject: req.body.subject,
-            html: req.body.content
+            html: req.body.content,
+            xMailer: 'Minimal UI v0.1'
         };
 
         // send mail with defined transport object

@@ -697,7 +697,7 @@ $(function () {
         }
 
         function show(data) {
-            var content = '<!doctype html><html><head><style> body { font: normal 13px/normal "Helvetica Neue", Helvetica, Arial, sans-serif; margin: 0; padding: 16px; } </style></head><body></body></html>';
+            var content = '<!doctype html>\n<html><head><style> body { font: normal 13px/normal "Helvetica Neue", Helvetica, Arial, sans-serif; margin: 0; padding: 16px; } </style></head><body></body></html>';
             // use given data
             if (data) {
                 // TO & CC
@@ -776,14 +776,14 @@ $(function () {
 
         var compose = $('.compose'),
             doc = compose.find('.editor').prop('contentDocument'),
-            style = '<style> body { font: normal 13px/normal "Helvetica Neue", Helvetica, Arial, sans-serif; padding: 16px; border: 0; margin: 0; } a { color: #337ab7; } p { margin: 0 0 1em 0; } </style>';
+            style = '<style>\nbody { font: normal 13px/normal "Helvetica Neue", Helvetica, Arial, sans-serif; padding: 16px; border: 0; margin: 0; }\na { color: #337ab7; }\np { margin: 0 0 1em 0; }\n</style>';
 
         var data = {
             from: state.session.address,
             to: compose.find('[data-name="to"]').tokenfield('get'),
             cc: compose.find('[data-name="cc"]').tokenfield('get'),
             subject: compose.find('[name="subject"]').val(),
-            content: '<!doctype html><html><head>' + style + '</head><body>' + doc.body.outerHTML + '</body></html>'
+            content: '<!doctype html><html><head>' + style + '\n</head>\n<body>\n' + doc.body.innerHTML + '\n</body>\n</html>'
         };
 
         http.POST('mail/messages/', data).done(function () {
