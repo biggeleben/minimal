@@ -6,7 +6,7 @@ This is a little pet project to play around with imap, node.js, express, and soc
 
 * Clone repository
 * npm install (the image lib might be tricky)
-* Edit config.js (mail server, port, username, password)
+* Edit config.js (mail server, port, domain, smtp)
 * Run: node index.js or nodemon index.js
 
 **Features**
@@ -23,22 +23,28 @@ This is a little pet project to play around with imap, node.js, express, and soc
 * All attached images (JPEG, PNG, BMP, GIF) are auto-added to the message body
 * Press `u` key to mark a message as unseen/seen
 * Press `backspace` or `del` to delete a message (not yet server-side)
+* Simple right-click menu
+* Very simple mail compose dialog (to/cc tokenfields; subject; HTML editor)
+* Sign-in / sign-out
 
 **Architecture**
 
 * Using express to provide a simple REST-ish API
   * `GET /mail/mailboxes/` Get all subscribed folders/mailboxes. Mind the trailing slash.
   * `GET /mail/messages/<mailbox>/` Get all messages in a mailbox. Again: Mind the trailing slash.
-  * `GET /mail/messages/<mailbox>/<uid>` Get a particular message
+  * `GET /mail/messages/<mailbox>/<uid>` Get a particular message.
   * `GET /mail/messages/<mailbox>/<uid>.<part>` Get a particular attachment; uid and part are separated by a dot.
-  * `SEARCH /mail/messages?query=...` Search for messages
-  * `PUT /mail/messages/<mailbox>/<uid>/flags` Update flag. Payload: { seen: true/false }
+  * `SEARCH /mail/messages?query=...` Search for messages.
+  * `PUT /mail/messages/<mailbox>/<uid>/flags` Update flag. Payload: { seen: true/false }.
+  * `POST /mail/messages/` Send new message. Payload: { from: '', to: [], cc: [], subject: '', content: '' }. 
+  * `GET /session` Get existing user session.
+  * `POST /session` Create new user session aka sign-in.
+  * `DELETE /session` Delete user session aka sign-out.
 * socket.io to handle IMAP IDLE
 * Almost all content is rendered server-side (via simple underscore templates)
 
 **Open playgrounds**
 
-* Add login/logout support
 * Concurrency
 
 **Limitations**
