@@ -7,7 +7,11 @@ module.exports = {
     // just the user - no domain part!
     user: 'user',
     password: 'password',
-    // just server name; no http://
+    // default domain (used to build mail addresses: user@domain)
+    domain: 'somewhere.tld',
+    // imap. just server name; no http://
     host: 'imap.somewhere.tld',
-    port: 993
+    port: 993,
+    // smpt
+    smtp: 'smtp.somewhere.tld'
 };
