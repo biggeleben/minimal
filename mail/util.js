@@ -39,6 +39,10 @@ module.exports = {
         return classes.join(' ');
     },
 
+    getThreadCids: function (data) {
+        return data.thread ? _(data.thread).pluck('cid').join(',') : data.cid;
+    },
+
     cid: function (arg) {
         if (arguments.length === 2) {
             return encodeURIComponent(arguments[0]) + '/' + encodeURIComponent(arguments[1]);

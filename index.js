@@ -197,41 +197,63 @@ app.put('/mail/mailboxes/count', function (req, res) {
 
 var tmplEnvelope = _.template(
     '<% _(list).each(function (data, index) { %>' +
-    '<li role="option" <%= (index === 0 ? "tabindex=0" : "") %> data-cid="<%- data.cid %>" data-seqno="<%- data.seqno %>" class="<%= util.getFlagClasses(data) %>">' +
+    '<li role="option" <%= (index === 0 ? "tabindex=0" : "") %> data-cid="<%- util.getThreadCids(data) %>" data-seqno="<%- data.seqno %>" class="<%= util.getFlagClasses(data) %>">' +
     '<div class="row">' +
+    // date, sender
     '<time class="date gray"><%- util.getDate(data.date) %></time>' +
     '<div class="who ellipsis"><%- util.getWho(data.from) %></div>' +
     '</div>' +
     '<div class="row">' +
+    // thread size, paperclip, priority, subject
+    '<% if (data.threadSize > 1) { %><span class="thread-size label"><%- data.threadSize %></span><% } %>' +
     '<% if (data.attachments.heuristic) { %><i class="fa fa-paperclip has-attachment"></i><% } %>' +
-    '<% if (data.priority < 3) { %><span class="high-priority">Important</span><% } %>' +
+    '<% if (data.priority < 3) { %><span class="high-priority label">Important</span><% } %>' +
     '<div class="subject ellipsis gray"><%- data.subject || "No subject" %></div>' +
     '</div>' +
+    // thread
+    '<% if (data.threadSize > 1) { %>' +
+      '<ul class="thread-view">' +
+      '<% _(data.thread).each(function (data) { %>' +
+      '<li role="option" data-cid="<%- data.cid %>">' +
+      '<time class="date gray"><%- util.getDate(data.date) %></time>' +
+      '<div class="who ellipsis gray"><%- util.getWho(data.from) %></div>' +
+      '</li>' +
+      '<% }); %>' +
+      '</ul>' +
+    '<% } %>' +
     '</li>\n' +
     '<% }); %>'
 );
 
 var tmplError = _.template('<li class="error"><%- error %></li>');
 
+function renderResult(req, res, result, emptyMessage) {
+    if (req.query.json) {
+        res.type('json').send(JSON.stringify(result, null, 4));
+    } else {
+        var count = (result && result.messages.length) || 0;
+        var html = count ? tmplEnvelope({ list: result.messages, util: util }) : emptyMessage;
+        res.send({ html: html, count: count, total: result.total });
+    }
+}
+
+function renderError(req, res, error) {
+    if (req.query.json) {
+        res.type('text').json({ error: error });
+    } else {
+        res.send(tmplError({ error: error }));
+    }
+}
+
 app.get(/^\/mail\/messages\/(.+)\/$/, function (req, res) {
 
     imap.getConnection(req, res).done(function (connection) {
         connection.fetchEnvelope(req.params[0], req.query.offset, req.query.limit)
             .done(function (result) {
-                if (req.query.json) {
-                    res.type('json').send(JSON.stringify(result, null, 4));
-                } else {
-                    var count = (result && result.messages.length) || 0;
-                    var html = count ? tmplEnvelope({ list: result.messages, util: util }) : '<li class="hint">No messages</li>';
-                    res.send({ html: html, count: count, total: result.total });
-                }
+                renderResult(req, res, result, '<li class="hint">No messages</li>');
             })
             .fail(function (error) {
-                if (req.query.json) {
-                    res.type('text').json({ error: error });
-                } else {
-                    res.send(tmplError({ error: error }));
-                }
+                renderError(error);
             });
     });
 });
@@ -241,16 +263,25 @@ app.search(/^\/mail\/messages\/(.+)\/$/, function (req, res) {
     imap.getConnection(req, res).done(function (connection) {
         connection.searchEnvelope(req.params[0], req.query.query, req.query.offset, req.query.limit)
             .done(function (result) {
-                if (req.query.json) {
-                    res.type('json').send(JSON.stringify(result, null, 4));
-                } else {
-                    var count = (result && result.messages.length) || 0;
-                    var html = count ? tmplEnvelope({ list: result.messages, util: util }) : '<li class="hint">No matches</li>';
-                    res.send({ html: html, count: count, total: result.total });
-                }
+                renderResult(req, res, result, '<li class="hint">No matches</li>');
             })
             .fail(function (error) {
-                res.type('text').json({ error: error });
+                renderError(error);
+            });
+    });
+});
+
+app.get(/^\/mail\/threads\/(.+)\/$/, function (req, res) {
+
+    var folder = req.params[0];
+
+    imap.getConnection(req, res).done(function (connection) {
+        connection.thread(folder)
+            .done(function (result) {
+                renderResult(req, res, result, '<li class="hint">No messages</li>');
+            })
+            .fail(function (error) {
+                renderError(error);
             });
     });
 });
@@ -300,7 +331,7 @@ var tmplMessage = _.template(
     '<section class="spam">This message is marked as spam!</section>' +
     '<% } %>' +
     // CONTENT
-    '<iframe src="//:0"></iframe>'
+    '<iframe src="//:0" data-cid="<%- data.cid %>"></iframe>'
 );
 
 tmplMessage.util = {
@@ -329,22 +360,29 @@ tmplMessage.util = {
     }
 };
 
-app.get(/^\/mail\/messages\/(.+)\/(\d+)$/, function (req, res) {
+app.get(/^\/mail\/messages\/([^,]+)\/(\d+)(,([^,]+)\/(\d+))*$/, function (req, res) {
 
-    var folder = req.params[0], uid = req.params[1];
+    var params = req.url.replace(/^\/mail\/messages\//, '').split(',');
+    var items = params.map(util.cid);
 
     imap.getConnection(req, res).done(function (connection) {
-        connection.fetchMessage(folder, uid)
-            .done(function (result) {
-                result.content = {
-                    header: tmplMessage({ data: result, util: tmplMessage.util }),
-                    message: result.content
+
+        $.when.apply($, items.map(function (item) {
+            return connection.fetchMessage(item.folder_id, item.id);
+        }))
+        .done(function (result) {
+            var result = _(arguments).map(function (data) {
+                data.content = {
+                    header: tmplMessage({ data: data, util: tmplMessage.util }),
+                    message: data.content
                 };
-                res.type('json').send(JSON.stringify(result, null, 4));
-            })
-            .fail(function (error) {
-                res.type('text').json({ error: error });
+                return data;
             });
+            res.type('json').send(JSON.stringify(result, null, 4));
+        })
+        .fail(function (error) {
+            res.type('text').json({ error: error });
+        });
     });
 });
 

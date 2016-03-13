@@ -123,6 +123,18 @@ module.exports = {
                     }
                     return { tagName: 'img', attribs: attribs };
                 }
+            },
+            textFilter: function (escaped, parents) {
+                // plain text message don't have parents yet (i.e. no <p> or <body>)
+                if (parents.length === 0 || parents[0].tag !== 'a') {
+                    // detect URLs unless already within <a>
+                    escaped = escaped.replace(/((?:(?:https?\:\/\/)|www\.).*?)(\s|([.,;!?](\s|$))|$)/g, '<a href="$1" target="_blank">$1</a>$2');
+                    // detech mail address (use indexOf as a quick check)
+                    if (escaped.indexOf('@') > -1) {
+                        escaped = escaped.replace(/([^"\s<,:;\(\)\[\]\u0100-\uFFFF]+@([a-z0-9äöüß\-]+\.)+[a-z]{2,})/g, '<a href="mailto:$1" target="_blank">$1</a>');
+                    }
+                }
+                return escaped;
             }
         });
     },
@@ -143,9 +155,12 @@ module.exports = {
     },
 
     cleanUpText: function (str) {
-        return _.escape(str)
-            // detect links
-            .replace(/((?:(?:https?\:\/\/)|www\.).*?)(\s|([.,;!?])(\s|$))/g, '<a href="$1" target="_blank">$1</a>$2')
+        // escape special chars
+        return _.escape(String(str || '').trim())
+            // beautify quotes
+            .replace(/(\r?\n&gt;.*)+/g, function (str) {
+                return '\n<blockquote type="cite">' + str.replace(/\r?\n&gt;[ ]*/g, '\n') + '\n</blockquote>';
+            })
             // inject <br> into plain text
             .replace(/\r?\n/g, '<br>');
     },

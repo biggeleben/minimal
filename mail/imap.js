@@ -155,7 +155,7 @@ function Connection(user, password) {
 
     this.searchEnvelope = function (folder, query, offset, limit) {
 
-        query = String(query || '').trim();
+        query = _.isArray(query) ? query : String(query || '').trim();
         offset = offset || 0;
         limit = limit || 50;
 
@@ -165,7 +165,7 @@ function Connection(user, password) {
             query = query.substr(5);
         }
 
-        if (query === '') return $.when({ messages: [], total: 0 });
+        if (query.length === 0) return $.when({ messages: [], total: 0 });
 
         return this.selectBox(folder).then(function (box) {
             return search(parseQuery(query)).then(function (results) {
@@ -200,6 +200,8 @@ function Connection(user, password) {
     };
 
     function parseQuery(query) {
+        // bypass arrays
+        if (_.isArray(query)) return query;
         // all lowercase
         query = query.toLowerCase();
         // unseen only?
@@ -632,6 +634,73 @@ function Connection(user, password) {
             inheritSpecialUse(box.subfolders, box.special);
         });
     }
+
+    //
+    // Get threads
+    //
+    this.thread = function (folder, offset, limit) {
+
+        offset = offset || 0;
+        limit = limit || 50;
+
+        function thread() {
+            var def = $.Deferred();
+            imap.thread('references', ['UNDELETED'], function (err, uids) {
+                if (err) return def.reject(err.toString());
+                def.resolve(uids);
+            });
+            return def.promise();
+        }
+
+        return this.selectBox(folder).then(function () {
+
+            return thread().then(function (threads) {
+
+                var total = threads.length,
+                    start = Math.max(0, total - limit - offset),
+                    stop = total - offset;
+
+                if (total === 0 || offset >= total) return $.when({ messages: [], total: total });
+
+                // get proper subset
+                threads = threads.slice(start, stop);
+
+                // get all uids
+                var all_uids = [];
+
+                // get flat thread structure, i.e. remove nesting
+                threads = threads.map(function (thread) {
+                    var uids = _(thread).flatten();
+                    all_uids.push.apply(all_uids, uids);
+                    return uids;
+                });
+
+                var f = imap.fetch(all_uids, {
+                    bodies: 'HEADER.FIELDS (X-PRIORITY CONTENT-TYPE)',
+                    envelope: true,
+                    size: true,
+                    struct: false
+                });
+
+                return processEnvelope(f, folder).then(function (list) {
+                    // create hash
+                    var hash = {};
+                    _(list).each(function (item) { hash[item.id] = item; });
+                    // replace id by message
+                    threads = threads.map(function (thread) {
+                        thread = _(thread.map(function (id) { return hash[id]; })).compact();
+                        var last = _(thread).last();
+                        var base = _.extend({ threadSize: thread.length, thread: thread.slice().reverse() }, _(thread).first());
+                        _.extend(base, _(last).pick('date', 'dateStr', 'dateFullStr', 'from'))
+                        return base;
+                    });
+                    // fix sort order
+                    threads = _(threads).sortBy('date');
+                    return { messages: threads.reverse(), total: total };
+                });
+            });
+        });
+    };
 
     //
     // Move message

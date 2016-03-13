@@ -20,6 +20,7 @@ $(function () {
         message: null,
         offset: 0,
         session: {},
+        threads: false,
         total: 0
     };
 
@@ -31,6 +32,10 @@ $(function () {
         folderView = $('.folder-view'),
         listView = $('.list-view'),
         detailView = $('.detail-view');
+
+    var $lv = function (cid) {
+        return listView.find('[data-cid="' + $.escape(cid) + '"]');
+    }
 
     // ------------------------------------------------------------------------------------------
 
@@ -159,13 +164,20 @@ $(function () {
         });
     }
 
+    // just to avoid
+    var recentlyFetchedMailbox;
+
     function fetchMailbox(folder) {
         if (folder === undefined) folder = state.folder; else setFolder(folder);
         setListMode('mailbox');
         clearSearchField();
         listView.busy(true, 500);
-        var render = lastOneWins(renderMessages);
-        return http.GET('mail/messages/' + folder + '/?' + $.param({ offset: state.offset, limit: LIMIT }))
+        // simple debounce
+        clearTimeout(recentlyFetchedMailbox);
+        recentlyFetchedMailbox = setTimeout(function () { recentlyFetchedMailbox = null });
+        var render = lastOneWins(renderMessages),
+            url = (state.threads ? 'mail/threads/' : 'mail/messages/') + folder + '/';
+        return http.GET(url + '?' + $.param({ offset: state.offset, limit: LIMIT }))
             .always(function () {
                 listView.busy(false);
             })
@@ -199,12 +211,12 @@ $(function () {
     function fetchMessage(cid) {
         if (cid === state.message) return;
         if (messageCache[cid]) {
-            toggleSeenIfUnseen(cid);
-            return renderMessage(messageCache[cid]);
+            //toggleSeenIfUnseen(cid);
+            return renderMessage(cid, messageCache[cid]);
         }
         detailView.busy(true, 300, 'fade');
         detailView.busy(true, 600);
-        var render = lastOneWins(renderMessage);
+        var render = lastOneWins(renderMessage, cid);
         if (pending) pending.abort();
         pending = http.GET('mail/messages/' + cid);
         pending
@@ -214,7 +226,7 @@ $(function () {
             })
             .done(function cont(data) {
                 messageCache[cid] = data;
-                listView.find('[data-cid="' + $.escape(cid) + '"]').removeClass('unseen');
+                $lv(cid).removeClass('unseen');
                 render(data);
             })
             .fail(function (xhr, textStatus) {
@@ -232,17 +244,19 @@ $(function () {
         return doc;
     }
 
-    function renderMessage(data) {
+    function renderMessage(cid, array) {
         clearDetailView();
-        state.message = data.cid;
-        detailView.get(0).innerHTML = data.content.header;
-        var doc = write(detailView.find('iframe'), data.content.message);
-        // look for doubleclick
-        doc.addEventListener('dblclick', zoomImage, false);
-        // resize
-        resize();
-        tick = setInterval(resize, 300);
-        return data;
+        state.message = cid;
+        detailView.get(0).innerHTML = array.map(function (data) { return data.content.header; }).join('');
+        array.forEach(function (data) {
+            var iframe = detailView.find('iframe[data-cid="' + $.escape(data.cid) + '"]');
+            var doc = write(iframe, data.content.message);
+            // look for doubleclick
+            doc.addEventListener('dblclick', zoomImage, false);
+            // resize
+            resize();
+            tick = setInterval(resize, 300);
+        });
     }
 
     function zoomImage(e) {
@@ -253,13 +267,14 @@ $(function () {
     }
 
     function resize() {
-        var iframe = detailView.children('iframe'),
-            doc = iframe.prop('contentDocument'),
-            outerHeight = detailView.height(),
-            headerHeight = detailView.children('header').outerHeight(true);
-        if (!doc) return clearInterval(tick);
-        var h = Math.max(doc.body.scrollHeight, outerHeight - headerHeight);
-        iframe.height(h);
+        var outerHeight = detailView.height(),
+            headerHeight = detailView.children('header:first').outerHeight(true);
+        detailView.children('iframe').each(function () {
+            var doc = this.contentDocument;
+            if (!doc) return clearInterval(tick);
+            var h = Math.max(doc.body.scrollHeight, outerHeight - headerHeight);
+            $(this).height(h);
+        });
     }
 
     function text(str) {
@@ -296,7 +311,7 @@ $(function () {
     }
 
     function toggleSeenIfUnseen(cid) {
-        var node = listView.find('[data-cid="' + $.escape(cid) + '"]');
+        var node = $lv(cid);
         if (node.hasClass('unseen')) cmd('toggle-seen', [cid], true);
     }
 
@@ -502,9 +517,17 @@ $(function () {
             range = 0;
             trigger();
         });
+
+        // cursor left/right
+        view.on('keydown', 'li', function (e) {
+            switch (e.which) {
+                case 37: $('.thread-view', e.currentTarget).stop().slideUp('fast'); break;
+                case 39: $('.thread-view', e.currentTarget).stop().slideDown('fast'); break;
+            }
+        });
     }
 
-    listView.selection = new Selection(listView, 'li', true);
+    listView.selection = new Selection(listView, 'li[role="option"]:visible', true);
     folderView.selection = new Selection(folderView, '.folder:visible', false);
 
     listView.on('select', function (e, list) {
@@ -513,6 +536,11 @@ $(function () {
 
     listView.on('above', function () {
         $('.search-field').focus();
+    });
+
+    listView.on('click', '.thread-size', function (e) {
+        var view = $(e.currentTarget).closest('li').find('.thread-view');
+        view.stop()[view.is(':visible') ? 'slideUp' : 'slideDown']('fast');
     });
 
     folderView.on('select', function (e, list) {
@@ -559,6 +587,8 @@ $(function () {
             case 'logout':
             case 'unblock-images':
             case 'discard':
+            case 'toggle-threads':
+                // simple forward
                 cmd(name);
                 break;
             case 'compose-to':
@@ -601,16 +631,16 @@ $(function () {
 
         'cmd:toggle-seen': function (e, cids, state) {
             // use first message to decide
-            var node = listView.find('[data-cid="' + $.escape(cids[0]) + '"]');
+            var node = $lv(cids[0]);
             if (state === undefined) state = node.hasClass('unseen');
             cids.forEach(function (cid) {
-                listView.find('[data-cid="' + $.escape(cid) + '"]').toggleClass('unseen', !state);
+                $lv(cid).toggleClass('unseen', !state);
             });
             http.PUT('mail/messages/flags?seen=' + state, cids);
         },
 
         'cmd:delete': function (e, cid) {
-            var node = listView.find('[data-cid="' + $.escape(cid) + '"]');
+            var node = $lv(cid);
             clearDetailView();
             node.next().trigger('mousedown');
             node.remove();
@@ -663,6 +693,13 @@ $(function () {
             state.offset = Math.min(max, state.offset + limit || LIMIT);
             var query = $.trim($('.search-field').val());
             if (query) searchMessages(query); else fetchMailbox();
+        },
+
+        'cmd:toggle-threads': function () {
+            state.threads = !state.threads;
+            $('.toggle-threads').toggleClass('enabled', state.threads);
+            listView.empty();
+            fetchMailbox();
         }
     });
 
@@ -824,13 +861,11 @@ $(function () {
             console.info('socket:uidvalidity', data)
         });
         // new mail events needs some fixes in imap lib first
-        // var first = true;
-        // socket.on('mail', function (data) {
-        //     if (first) { first = false; return; }
-        //     console.info('socket:mail', data);
-        //     fetchMailbox();
-        //     // new Audio('assets/beep.mp3').play();
-        // });
+        socket.on('mail', function (data) {
+            console.info('socket:mail', data);
+            if (!recentlyFetchedMailbox) fetchMailbox();
+            // new Audio('assets/beep.mp3').play();
+        });
     }
 });
 
