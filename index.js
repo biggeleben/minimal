@@ -14,7 +14,7 @@ var imap = require('./mail/imap'),
     config = require('./config'),
     $ = require('jquery-deferred'),
     _ = require('underscore'),
-    gd = require('easy-gd'),
+    gm = require('gm').subClass({ imageMagick: true }),
     nodemailer = require('nodemailer');
 
 //
@@ -410,6 +410,7 @@ app.get(/^\/mail\/messages\/(.+)\/(\d+)\.(\d[\d\.]*)(\/\/[^\/]+)?$/, function (r
                     var buffer = new Buffer(result.content, 'base64');
                     if (result.contentType === 'image/jpeg') {
                         autoOrientImage(buffer, function (err, buffer) {
+                            if (err) console.error(err);
                             res.set('Cache-Control', 'private, max-age=864000');
                             res.set('Expires', new Date(Date.now() + 864000000).toUTCString());
                             res.type('image/jpeg').send(buffer);
@@ -429,7 +430,8 @@ app.get(/^\/mail\/messages\/(.+)\/(\d+)\.(\d[\d\.]*)(\/\/[^\/]+)?$/, function (r
 
 // simple rotation; base64 only
 function autoOrientImage(buffer, callback) {
-    gd.open(buffer).resize({ width: 1024 }).autoOrient().save({ quality: 70 }, callback);
+    // TODO: quality 70
+    gm(buffer).resize(1024).autoOrient().toBuffer('JPEG', callback);
 }
 
 //
@@ -503,7 +505,7 @@ app.post(/^\/mail\/messages\/$/, function (req, res) {
 
 // GO!
 
-var io = app.listen(1337);
+var io = app.listen(2337);
 
 //
 // Socket stuff

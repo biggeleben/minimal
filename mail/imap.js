@@ -52,7 +52,7 @@ function Connection(user, password) {
         port: config.port,
         tls: true,
         authTimeout: 3000
-        //debug: function (cmd) { console.log(cmd); }
+        // debug: function (cmd) { console.log(cmd); }
     });
 
     imap.on('ready', onReady);
